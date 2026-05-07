@@ -58,6 +58,7 @@ func TestSearchRequestBody(t *testing.T) {
 					{Field: "c", Operator: OpContains, Value: "3"},
 					{Field: "d", Operator: OpEquals, Value: "4"},
 					{Field: "e", Operator: OpNotEquals, Value: "5"},
+					{Field: "f", Operator: OpLess, Value: 6},
 				},
 			},
 			want: map[string]any{
@@ -69,6 +70,7 @@ func TestSearchRequestBody(t *testing.T) {
 					{"field": "c", "operator": "contains", "value": "3"},
 					{"field": "d", "operator": "equals", "value": "4"},
 					{"field": "e", "operator": "notequals", "value": "5"},
+					{"field": "f", "operator": "less", "value": 6},
 				},
 			},
 		},

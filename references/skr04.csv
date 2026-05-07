@@ -1,0 +1,15 @@
+Kontonummer,Bezeichnung,Klasse,Steuerschlüssel
+0670,Geringwertige Wirtschaftsgüter,0,
+1200,Forderungen aus Lieferungen und Leistungen,1,
+1406,Abziehbare Vorsteuer 19 %,1,VSt 19%
+1600,Kasse,1,
+1800,Bank,1,
+2100,Privatentnahmen allgemein,2,
+3300,Verbindlichkeiten aus Lieferungen und Leistungen,3,
+3806,Umsatzsteuer 19 %,3,USt 19%
+4300,Erlöse 7 % USt,4,USt 7%
+4400,Erlöse 19 % USt,4,USt 19%
+5300,Wareneingang 7 % Vorsteuer,5,VSt 7%
+5400,Wareneingang 19 % Vorsteuer,5,VSt 19%
+6650,Reisekosten Arbeitnehmer,6,
+6670,Reisekosten Unternehmer,6,

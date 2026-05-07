@@ -638,7 +638,12 @@ commands:
   download          download bytes from an authenticated endpoint
   teamwork          Teamwork-specific operations
   sachkonto         search and inspect Sachkonten
-  kontakt           search and inspect Kontakte (master directory)`)
+  kontakt           search and inspect Kontakte (master directory)
+  debitor           search and inspect Debitoren
+  kreditor          search and inspect Kreditoren
+  offene-posten     search and inspect Offene Posten
+  journal           search the Journal (chronological postings)
+  buchung           inspect a single Buchung (posting)`)
 	return nil
 }
 

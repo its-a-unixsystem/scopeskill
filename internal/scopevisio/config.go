@@ -11,7 +11,7 @@ const (
 	ConfigKeyBaseURL          = "BASE_URL"
 	ConfigKeyCustomer         = "CUSTOMER"
 	ConfigKeyRestRefreshToken = "REST_REFRESH_TOKEN"
-	AuthLoginConfigHeader     = "# scopeskill config — managed by 'scopevisio auth login'"
+	AuthLoginConfigHeader     = "# scopeskill config — managed by 'sv-cli auth login'"
 
 	EnvConfig           = "SCOPESKILL_CONFIG"
 	EnvBaseURL          = "SCOPESKILL_BASE_URL"

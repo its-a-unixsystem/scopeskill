@@ -77,7 +77,7 @@ type AuthLoginRequiredError struct {
 }
 
 func (e AuthLoginRequiredError) Error() string {
-	return fmt.Sprintf("%v; run scopevisio auth login", e.Err)
+	return fmt.Sprintf("%v; run sv-cli auth login", e.Err)
 }
 
 type TransientRefreshError struct {
@@ -112,7 +112,7 @@ func (c *Client) getToken() (Token, bool, error) {
 		}, false, nil
 	}
 	if c.Config.RefreshToken == "" {
-		return Token{}, false, errors.New("missing REST refresh token; run scopevisio auth login or set REST_REFRESH_TOKEN in the Scopevisio config")
+		return Token{}, false, errors.New("missing REST refresh token; run sv-cli auth login or set REST_REFRESH_TOKEN in the Scopevisio config")
 	}
 	if token, err := c.loadAccessTokenCache(); err == nil && !token.Expired() {
 		return token, false, nil

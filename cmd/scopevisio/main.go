@@ -99,7 +99,7 @@ func auth(configPath string, args []string) error {
 
 func authShow(configPath string, args []string) error {
 	if len(args) != 0 {
-		return fmt.Errorf("usage: scopevisio auth show")
+		return fmt.Errorf("usage: sv-cli auth show")
 	}
 	token, source, err := effectiveRESTRefreshToken(configPath)
 	if err != nil {
@@ -111,7 +111,7 @@ func authShow(configPath string, args []string) error {
 
 func authSecret(configPath string, args []string) error {
 	if len(args) != 0 {
-		return fmt.Errorf("usage: scopevisio auth secret")
+		return fmt.Errorf("usage: sv-cli auth secret")
 	}
 	token, source, err := effectiveRESTRefreshToken(configPath)
 	if err != nil {
@@ -123,7 +123,7 @@ func authSecret(configPath string, args []string) error {
 
 func authDelete(configPath string, args []string) error {
 	if len(args) != 0 {
-		return fmt.Errorf("usage: scopevisio auth delete")
+		return fmt.Errorf("usage: sv-cli auth delete")
 	}
 	path := scopevisio.ResolveConfigPath(configPath)
 	configFile, err := scopevisio.ReadScopevisioConfig(path)
@@ -166,7 +166,7 @@ func effectiveRESTRefreshToken(configPath string) (string, string, error) {
 }
 
 func missingRESTRefreshTokenError() error {
-	return errors.New("missing REST refresh token; run scopevisio auth login")
+	return errors.New("missing REST refresh token; run sv-cli auth login")
 }
 
 func redactRESTRefreshToken(token string) string {
@@ -183,7 +183,7 @@ func authLogin(configPath string, args []string) error {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return fmt.Errorf("usage: scopevisio auth login [--force]")
+		return fmt.Errorf("usage: sv-cli auth login [--force]")
 	}
 
 	path := scopevisio.ResolveConfigPath(configPath)
@@ -192,10 +192,10 @@ func authLogin(configPath string, args []string) error {
 		return err
 	}
 	if configFile.Values()[scopevisio.ConfigKeyRestRefreshToken] != "" && !*force {
-		return errors.New("Scopevisio config already contains REST_REFRESH_TOKEN; rerun scopevisio auth login --force to overwrite it")
+		return errors.New("Scopevisio config already contains REST_REFRESH_TOKEN; rerun sv-cli auth login --force to overwrite it")
 	}
 	if !isTerminal(cliInput) {
-		return errors.New("scopevisio auth login requires a TTY; stdin is not interactive")
+		return errors.New("sv-cli auth login requires a TTY; stdin is not interactive")
 	}
 	if os.Getenv(scopevisio.EnvRestRefreshToken) != "" {
 		fmt.Fprintf(cliError, "warning: %s is set and will shadow the REST refresh token written to the Scopevisio config\n", scopevisio.EnvRestRefreshToken)
@@ -279,7 +279,7 @@ func get(client *scopevisio.Client, args []string) error {
 		return err
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: scopevisio get <path> [--query KEY=VALUE]")
+		return fmt.Errorf("usage: sv-cli get <path> [--query KEY=VALUE]")
 	}
 	result, err := client.JSON("GET", flags.Arg(0), nil, query)
 	if err != nil {
@@ -297,7 +297,7 @@ func post(client *scopevisio.Client, args []string) error {
 		return err
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: scopevisio post <path> --data JSON")
+		return fmt.Errorf("usage: sv-cli post <path> --data JSON")
 	}
 	body, err := loadJSON(*data)
 	if err != nil {
@@ -319,7 +319,7 @@ func download(client *scopevisio.Client, args []string) error {
 		return err
 	}
 	if flags.NArg() != 1 || *out == "" {
-		return fmt.Errorf("usage: scopevisio download <path> --out <file>")
+		return fmt.Errorf("usage: sv-cli download <path> --out <file>")
 	}
 	if err := client.Download(flags.Arg(0), *out, query); err != nil {
 		return err
@@ -352,7 +352,7 @@ func teamworkUpload(client *scopevisio.Client, args []string) error {
 		return err
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: scopevisio teamwork upload <file> [--metadata JSON] [--collection ID] [--tag TAG]")
+		return fmt.Errorf("usage: sv-cli teamwork upload <file> [--metadata JSON] [--collection ID] [--tag TAG]")
 	}
 	metadata, err := loadJSONObject(*metadataArg)
 	if err != nil {
@@ -473,7 +473,7 @@ func normalizeFlagArgs(args []string) []string {
 }
 
 func parseGlobalFlags(args []string) (string, []string, error) {
-	flags := flag.NewFlagSet("scopevisio", flag.ContinueOnError)
+	flags := flag.NewFlagSet("sv-cli", flag.ContinueOnError)
 	configPath := flags.String("config", "", "Scopevisio config path")
 	if err := flags.Parse(args); err != nil {
 		return "", nil, err
@@ -482,7 +482,7 @@ func parseGlobalFlags(args []string) (string, []string, error) {
 }
 
 func usage() error {
-	fmt.Fprintln(cliOutput, `usage: scopevisio [--config <path>] <command> [options]
+	fmt.Fprintln(cliOutput, `usage: sv-cli [--config <path>] <command> [options]
 
 commands:
   auth              manage the configured REST refresh token

@@ -175,7 +175,7 @@ func TestAuthDeleteNoopsWhenOnlyEnvTokenExists(t *testing.T) {
 func TestAuthShowRejectsUnexpectedArguments(t *testing.T) {
 	output, _ := withCLI(t, "", false)
 	err := run([]string{"auth", "show", "extra"})
-	if err == nil || !strings.Contains(err.Error(), "usage: scopevisio auth show") {
+	if err == nil || !strings.Contains(err.Error(), "usage: sv-cli auth show") {
 		t.Fatalf("error = %v output=%q", err, output.String())
 	}
 }

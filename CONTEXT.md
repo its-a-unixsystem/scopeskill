@@ -80,6 +80,50 @@ _Avoid_: File, doc
 The byte payload on disk that can be uploaded to or downloaded from a **Teamwork document**.
 _Avoid_: Teamwork document
 
+**Unternehmen**:
+The Scopevisio organisation/tenant scope of an authenticated session, paired with the `CUSTOMER` and `REST_REFRESH_TOKEN` in **scopeskill config**.
+_Avoid_: Mandant, tenant, organisation when the Scopevisio billing scope is meant
+
+**Unternehmen probe**:
+A deterministic API call run during **Auth login** to derive a fixed **Unternehmen** attribute (e.g. **SKR**) from the live Scopevisio API and persist it to **scopeskill config**.
+_Avoid_: Login probe, account probe
+
+**SKR**:
+The chart-of-accounts standard (`SKR03` or `SKR04`) of the **Unternehmen**, persisted in **scopeskill config** and used by accounting commands to interpret Kontonummern.
+_Avoid_: Kontenrahmen when the standard rather than the live chart is meant
+
+**Sachkonto**:
+A Scopevisio impersonal G/L account under the **Unternehmen**'s chart, identified by Kontonummer, with no link to a **Kontakt**.
+_Avoid_: G/L account, ledger account when speaking with users
+
+**Kontakt**:
+The Scopevisio master-directory entity (`/contacts`) that owns identifying details (name, address, USt-ID) for both **Debitor** and **Kreditor** accounts.
+_Avoid_: Customer, supplier when only the linked party is meant
+
+**Debitor**:
+An accounts-receivable Konto attached to exactly one **Kontakt**, receiving postings for customer-side transactions.
+_Avoid_: Customer account when the **Kontakt** is meant
+
+**Kreditor**:
+An accounts-payable Konto attached to exactly one **Kontakt**, receiving postings for supplier-side transactions.
+_Avoid_: Vendor account when the **Kontakt** is meant
+
+**Buchung**:
+A single posting in the **Journal**: at minimum a Soll/Haben pair on Konten with an amount and a Buchungsdatum, plus optional Steuerschlüssel and Dimensionen.
+_Avoid_: Posting line, journal entry
+
+**Journal**:
+The chronological sequence of all **Buchungen** for a Fiskaljahr; queried but never mutated through the **`sv-cli`** in v1.
+_Avoid_: Ledger
+
+**Beleg**:
+The document underlying one or more **Buchungen**, identified by Belegnummer; an Eingangs- or Ausgangsrechnung is one kind of **Beleg**.
+_Avoid_: Voucher, document when the Scopevisio document type is meant
+
+**Offene Posten**:
+The list of unsettled **Belege** on either the debitor side (Forderungen) or the kreditor side (Verbindlichkeiten); the side is always specified explicitly when querying.
+_Avoid_: Open invoices, OPs
+
 ## Relationships
 
 - A **scopeskill** contains exactly one **Codex skill**.
@@ -128,6 +172,13 @@ _Avoid_: Teamwork document
 - Teamwork folders are accessed through generic JSON calls in the first implementation.
 - `download <path> --out` is a generic binary GET and is not Teamwork-specific.
 - Teamwork-specific operations that need bespoke flags or formatting (currently only multipart upload) live under the `teamwork` subcommand group, e.g. `sv-cli teamwork upload`.
+- An **Unternehmen probe** runs during **Auth login** after token exchange and writes its result (e.g. `SKR`) to **scopeskill config**; re-running **Auth login** re-probes and overwrites the stored value.
+- The first **Unternehmen probe** is **SKR** detection, which queries `/impersonalaccounts` for `4400` (→ `SKR04`) and `8400` (→ `SKR03`), falling back to a TTY prompt when the chart is custom.
+- No `SCOPESKILL_*` environment override is exposed for **Unternehmen** attributes such as `SKR`, because they pair with `CUSTOMER` and `REST_REFRESH_TOKEN`; switch identity wholesale via `--config` (consistent with ADR-0004).
+- A **Debitor** and a **Kreditor** each link to exactly one **Kontakt**; a **Sachkonto** does not.
+- A **Buchung** belongs to exactly one **Journal** (per Fiskaljahr) and references one or more Konten (Sachkonto, Debitor, or Kreditor).
+- An **Offene Posten** entry references the **Beleg** that originated it and the **Kontakt** owning the **Debitor** or **Kreditor** side.
+- The **`sv-cli`** stitches data on `show`-style commands when the second piece is reliably co-requested, but never on list-style commands (N+1 risk) and never derives business answers (see ADR-0006).
 
 ## Example dialogue
 

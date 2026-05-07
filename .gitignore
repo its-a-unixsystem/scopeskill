@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.scopevisio-token.json
+bin/
+dist/
+
+# AI stuff
+.claude/
+.agents/

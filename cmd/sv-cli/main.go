@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/its-a-unixsystem/scopeskill/internal/scopevisio"
+	"github.com/its-a-unixsystem/scopeskill/internal/scopeskill"
 	"golang.org/x/term"
 )
 
@@ -65,17 +65,23 @@ func run(args []string) error {
 			return err
 		}
 		return teamwork(client, commandArgs[1:])
+	case "sachkonto":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return sachkonto(client, commandArgs[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", commandArgs[0])
 	}
 }
 
-func newClient(configPath string) (*scopevisio.Client, error) {
-	config, err := scopevisio.LoadClientConfig(configPath)
+func newClient(configPath string) (*scopeskill.Client, error) {
+	config, err := scopeskill.LoadClientConfig(configPath)
 	if err != nil {
 		return nil, err
 	}
-	return scopevisio.NewClient(config), nil
+	return scopeskill.NewClient(config), nil
 }
 
 func auth(configPath string, args []string) error {
@@ -125,18 +131,18 @@ func authDelete(configPath string, args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("usage: sv-cli auth delete")
 	}
-	path := scopevisio.ResolveConfigPath(configPath)
-	configFile, err := scopevisio.ReadScopevisioConfig(path)
+	path := scopeskill.ResolveConfigPath(configPath)
+	configFile, err := scopeskill.ReadConfigFile(path)
 	if err != nil {
 		return err
 	}
-	envToken := os.Getenv(scopevisio.EnvRestRefreshToken)
-	configToken := configFile.Values()[scopevisio.ConfigKeyRestRefreshToken]
+	envToken := os.Getenv(scopeskill.EnvRestRefreshToken)
+	configToken := configFile.Values()[scopeskill.ConfigKeyRestRefreshToken]
 	if envToken == "" && configToken == "" {
 		return missingRESTRefreshTokenError()
 	}
 	if configToken != "" {
-		if err := configFile.Delete(scopevisio.ConfigKeyRestRefreshToken); err != nil {
+		if err := configFile.Delete(scopeskill.ConfigKeyRestRefreshToken); err != nil {
 			return err
 		}
 		if err := configFile.Write(); err != nil {
@@ -144,21 +150,21 @@ func authDelete(configPath string, args []string) error {
 		}
 	}
 	if envToken != "" {
-		fmt.Fprintf(cliError, "warning: %s is set; deleting REST_REFRESH_TOKEN from the Scopevisio config will not affect the next call\n", scopevisio.EnvRestRefreshToken)
+		fmt.Fprintf(cliError, "warning: %s is set; deleting REST_REFRESH_TOKEN from the scopeskill config will not affect the next call\n", scopeskill.EnvRestRefreshToken)
 	}
 	return nil
 }
 
 func effectiveRESTRefreshToken(configPath string) (string, string, error) {
-	if token := os.Getenv(scopevisio.EnvRestRefreshToken); token != "" {
-		return token, "env:" + scopevisio.EnvRestRefreshToken, nil
+	if token := os.Getenv(scopeskill.EnvRestRefreshToken); token != "" {
+		return token, "env:" + scopeskill.EnvRestRefreshToken, nil
 	}
-	path := scopevisio.ResolveConfigPath(configPath)
-	configFile, err := scopevisio.ReadScopevisioConfig(path)
+	path := scopeskill.ResolveConfigPath(configPath)
+	configFile, err := scopeskill.ReadConfigFile(path)
 	if err != nil {
 		return "", "", err
 	}
-	token := configFile.Values()[scopevisio.ConfigKeyRestRefreshToken]
+	token := configFile.Values()[scopeskill.ConfigKeyRestRefreshToken]
 	if token == "" {
 		return "", "", missingRESTRefreshTokenError()
 	}
@@ -186,30 +192,30 @@ func authLogin(configPath string, args []string) error {
 		return fmt.Errorf("usage: sv-cli auth login [--force]")
 	}
 
-	path := scopevisio.ResolveConfigPath(configPath)
-	configFile, err := scopevisio.ReadScopevisioConfig(path)
+	path := scopeskill.ResolveConfigPath(configPath)
+	configFile, err := scopeskill.ReadConfigFile(path)
 	if err != nil {
 		return err
 	}
-	if configFile.Values()[scopevisio.ConfigKeyRestRefreshToken] != "" && !*force {
-		return errors.New("Scopevisio config already contains REST_REFRESH_TOKEN; rerun sv-cli auth login --force to overwrite it")
+	if configFile.Values()[scopeskill.ConfigKeyRestRefreshToken] != "" && !*force {
+		return errors.New("scopeskill config already contains REST_REFRESH_TOKEN; rerun sv-cli auth login --force to overwrite it")
 	}
 	if !isTerminal(cliInput) {
 		return errors.New("sv-cli auth login requires a TTY; stdin is not interactive")
 	}
-	if os.Getenv(scopevisio.EnvRestRefreshToken) != "" {
-		fmt.Fprintf(cliError, "warning: %s is set and will shadow the REST refresh token written to the Scopevisio config\n", scopevisio.EnvRestRefreshToken)
+	if os.Getenv(scopeskill.EnvRestRefreshToken) != "" {
+		fmt.Fprintf(cliError, "warning: %s is set and will shadow the REST refresh token written to the scopeskill config\n", scopeskill.EnvRestRefreshToken)
 	}
 
 	credentials, err := promptInitialCredentials()
 	if err != nil {
 		return err
 	}
-	baseConfig, err := scopevisio.LoadClientConfig(configPath)
+	baseConfig, err := scopeskill.LoadClientConfig(configPath)
 	if err != nil {
 		return err
 	}
-	client := scopevisio.NewClient(scopevisio.Config{BaseURL: baseConfig.BaseURL})
+	client := scopeskill.NewClient(scopeskill.Config{BaseURL: baseConfig.BaseURL})
 	token, err := client.Login(credentials)
 	if err != nil {
 		return err
@@ -223,28 +229,28 @@ func authLogin(configPath string, args []string) error {
 	if err := configFile.Write(); err != nil {
 		return err
 	}
-	fmt.Fprintf(cliOutput, "Scopevisio config written: %s\n", path)
+	fmt.Fprintf(cliOutput, "scopeskill config written: %s\n", path)
 	return nil
 }
 
-func promptInitialCredentials() (scopevisio.InitialCredentials, error) {
+func promptInitialCredentials() (scopeskill.InitialCredentials, error) {
 	customer, err := promptLine("Kundennummer: ")
 	if err != nil {
-		return scopevisio.InitialCredentials{}, err
+		return scopeskill.InitialCredentials{}, err
 	}
 	username, err := promptLine("Benutzername: ")
 	if err != nil {
-		return scopevisio.InitialCredentials{}, err
+		return scopeskill.InitialCredentials{}, err
 	}
 	password, err := promptPassword("Passwort: ")
 	if err != nil {
-		return scopevisio.InitialCredentials{}, err
+		return scopeskill.InitialCredentials{}, err
 	}
 	organisationID, err := promptLine("Organisations-ID (optional): ")
 	if err != nil {
-		return scopevisio.InitialCredentials{}, err
+		return scopeskill.InitialCredentials{}, err
 	}
-	credentials := scopevisio.InitialCredentials{
+	credentials := scopeskill.InitialCredentials{
 		Customer:       customer,
 		Username:       username,
 		Password:       password,
@@ -252,11 +258,11 @@ func promptInitialCredentials() (scopevisio.InitialCredentials, error) {
 	}
 	switch {
 	case credentials.Customer == "":
-		return scopevisio.InitialCredentials{}, errors.New("Kundennummer ist erforderlich")
+		return scopeskill.InitialCredentials{}, errors.New("Kundennummer ist erforderlich")
 	case credentials.Username == "":
-		return scopevisio.InitialCredentials{}, errors.New("Benutzername ist erforderlich")
+		return scopeskill.InitialCredentials{}, errors.New("Benutzername ist erforderlich")
 	case credentials.Password == "":
-		return scopevisio.InitialCredentials{}, errors.New("Passwort ist erforderlich")
+		return scopeskill.InitialCredentials{}, errors.New("Passwort ist erforderlich")
 	default:
 		return credentials, nil
 	}
@@ -353,7 +359,7 @@ func readLine(input *os.File) (string, error) {
 	}
 }
 
-func get(client *scopevisio.Client, args []string) error {
+func get(client *scopeskill.Client, args []string) error {
 	flags := flag.NewFlagSet("get", flag.ContinueOnError)
 	query := queryFlags{}
 	flags.Var(&query, "query", "query parameter KEY=VALUE")
@@ -370,7 +376,7 @@ func get(client *scopevisio.Client, args []string) error {
 	return printJSON(result)
 }
 
-func post(client *scopevisio.Client, args []string) error {
+func post(client *scopeskill.Client, args []string) error {
 	flags := flag.NewFlagSet("post", flag.ContinueOnError)
 	data := flags.String("data", "", "JSON body, or @path/to/file.json")
 	query := queryFlags{}
@@ -392,7 +398,7 @@ func post(client *scopevisio.Client, args []string) error {
 	return printJSON(result)
 }
 
-func download(client *scopevisio.Client, args []string) error {
+func download(client *scopeskill.Client, args []string) error {
 	flags := flag.NewFlagSet("download", flag.ContinueOnError)
 	out := flags.String("out", "", "output file path")
 	query := queryFlags{}
@@ -410,7 +416,7 @@ func download(client *scopevisio.Client, args []string) error {
 	return nil
 }
 
-func teamwork(client *scopevisio.Client, args []string) error {
+func teamwork(client *scopeskill.Client, args []string) error {
 	if len(args) == 0 {
 		fmt.Fprintln(cliOutput, "teamwork subcommands: upload")
 		return errors.New("missing teamwork subcommand")
@@ -423,7 +429,7 @@ func teamwork(client *scopevisio.Client, args []string) error {
 	}
 }
 
-func teamworkUpload(client *scopevisio.Client, args []string) error {
+func teamworkUpload(client *scopeskill.Client, args []string) error {
 	flags := flag.NewFlagSet("teamwork upload", flag.ContinueOnError)
 	metadataArg := flags.String("metadata", "", "JSON metadata, or @path/to/file.json")
 	collections := repeatedFlag{}
@@ -556,7 +562,7 @@ func normalizeFlagArgs(args []string) []string {
 
 func parseGlobalFlags(args []string) (string, []string, error) {
 	flags := flag.NewFlagSet("sv-cli", flag.ContinueOnError)
-	configPath := flags.String("config", "", "Scopevisio config path")
+	configPath := flags.String("config", "", "scopeskill config path")
 	if err := flags.Parse(args); err != nil {
 		return "", nil, err
 	}
@@ -571,7 +577,8 @@ commands:
   get               run an authenticated GET request
   post              run an authenticated POST request
   download          download bytes from an authenticated endpoint
-  teamwork          Teamwork-specific operations`)
+  teamwork          Teamwork-specific operations
+  sachkonto         search and inspect Sachkonten`)
 	return nil
 }
 

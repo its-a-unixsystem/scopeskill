@@ -1,0 +1,5 @@
+# Post-login Unternehmen probes
+
+`auth login` runs a sequence of deterministic API probes after the token exchange to derive fixed Unternehmen attributes from the live Scopevisio API and persist them to **scopeskill config** alongside `CUSTOMER` and `REST_REFRESH_TOKEN`. The first such probe is SKR detection, which queries `/impersonalaccounts` for the standard Erlöskonto numbers (`4400` → SKR04, `8400` → SKR03, neither → prompt the user) and writes `SKR=skr03|skr04`. The probe set is intentionally extensible so future per-Unternehmen attributes (currency, fiscal-year-start, custom chart variants) follow the same once-per-Unternehmen lifecycle without reshaping `auth login`.
+
+Re-running **Auth login** re-probes and overwrites the stored attributes, because these attributes pair with the active identity (`CUSTOMER` + `REST_REFRESH_TOKEN`) and a re-login may be onto a different Unternehmen. For the same reason — and consistent with ADR-0004 on `CUSTOMER` — no `SCOPESKILL_*` environment override exists for any probe result; switch identity (and therefore probe results) wholesale via `--config`.

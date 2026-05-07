@@ -16,9 +16,9 @@ Scopevisio uses OAuth2-style bearer tokens for REST calls.
 4. Use `sv-cli auth show` to inspect setup without printing the full token.
 5. Use `sv-cli auth secret` only when the user explicitly asks for the full refresh token.
 
-## Scopevisio Config
+## scopeskill config
 
-The Scopevisio config is an env-file read by `sv-cli`. The default path comes from the user config directory. Pass `--config <path>` or set `SCOPESKILL_CONFIG` to use another config file.
+The scopeskill config is an env-file read by `sv-cli`. The default path comes from the user config directory. Pass `--config <path>` or set `SCOPESKILL_CONFIG` to use another config file.
 
 Durable config keys:
 
@@ -45,7 +45,7 @@ SCOPESKILL_ACCESS_TOKEN_CACHE=/path/to/access-token-cache.json
 
 ## Access-Token Cache
 
-The access-token cache is separate from the Scopevisio config. It stores short-lived REST access tokens with expiry metadata and uses a refresh-token fingerprint in the default cache filename. Deleting the cache only forces the next command to refresh a new REST access token.
+The access-token cache is separate from the scopeskill config. It stores short-lived REST access tokens with expiry metadata and uses a refresh-token fingerprint in the default cache filename. Deleting the cache only forces the next command to refresh a new REST access token.
 
 ## Commands
 

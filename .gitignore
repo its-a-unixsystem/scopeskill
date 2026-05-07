@@ -5,7 +5,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.scopeskill-token.json
+.cache/scopeskill/
 bin/
 dist/
 

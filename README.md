@@ -14,13 +14,14 @@ The Swagger UI is backed by:
 ## Skill Layout
 
 - `SKILL.md`: the trigger and operating guide for agents.
+- `docs/cli-reference.md`: `sv-cli` command reference and usage examples.
 - `references/auth.md`: token and login workflow.
 - `references/bookkeeping.md`: Scopevisio bookkeeping object map and API guardrails.
 - `references/teamworkbridge.md`: Teamwork/CenterDevice access, upload, and download workflow.
 - `cmd/sv-cli/`: small Go helper CLI. Build it as `sv-cli`.
 - `internal/scopeskill/`: helper client and config package used by `sv-cli`.
 
-## Setup
+## Quickstart
 
 Create a technical user in Scopevisio and give it the required licences and rights.
 
@@ -36,27 +37,21 @@ Run one-time interactive login:
 ./bin/sv-cli auth login
 ```
 
-`auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active scopeskill config. It never stores the initial username, password, or organisation ID.
+`auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active scopeskill config. It probes and stores the `SKR` automatically. It never stores the initial username, password, or organisation ID.
 
 Check authentication:
 
 ```bash
 ./bin/sv-cli auth show
-./bin/sv-cli get /myaccount
 ```
 
-Search contacts:
+Search contacts using the `sv-cli` helper:
 
 ```bash
-./bin/sv-cli post /contacts --data '{
-  "page": 0,
-  "pageSize": 25,
-  "fields": ["id", "firstname", "lastname", "email"],
-  "search": [
-    {"field": "email", "operator": "is not null"}
-  ]
-}'
+./bin/sv-cli kontakt search --email="@example.com"
 ```
+
+For a comprehensive list of all accounting, teamwork, and REST API commands available via `sv-cli`, please refer to the **[CLI Reference](docs/cli-reference.md)**.
 
 ## Configuration
 
@@ -66,6 +61,7 @@ Durable config keys:
 
 - `CUSTOMER`: the Scopevisio customer number paired with the refresh token.
 - `REST_REFRESH_TOKEN`: durable credential used to obtain REST access tokens.
+- `SKR`: the active chart-of-accounts standard (`skr03` or `skr04`).
 - `BASE_URL`: optional Scopevisio REST base URL override.
 
 Supported one-process environment overrides:
@@ -79,48 +75,6 @@ Supported one-process environment overrides:
 
 REST access tokens are short-lived request credentials. `sv-cli` stores them in a separate disposable access-token cache, keyed by refresh-token fingerprint. REST refresh tokens are durable config credentials. Deleting the access-token cache does not remove setup; deleting `REST_REFRESH_TOKEN` from config does.
 
-## List and Download Teamwork Documents
-
-Start from an already configured `sv-cli`; `auth show` should print a redacted refresh token source:
-
-```bash
-./bin/sv-cli auth show
-```
-
-List collections, then copy the `id` from the collection you want:
-
-```bash
-./bin/sv-cli get /teamworkbridge/collections --query all=true
-```
-
-List documents in that collection:
-
-```bash
-./bin/sv-cli get /teamworkbridge/documents \
-  --query all=true \
-  --query collection=<collection-id>
-```
-
-Read one document's metadata:
-
-```bash
-./bin/sv-cli get /teamworkbridge/document/<document-id>
-```
-
-Download that document's bytes:
-
-```bash
-./bin/sv-cli download /teamworkbridge/document/<document-id> --out ./document.pdf
-```
-
-If you need folders inside a collection, list top-level folders first:
-
-```bash
-./bin/sv-cli get /teamworkbridge/folders \
-  --query parent=none \
-  --query collection=<collection-id>
-```
-
 ## Non-Technical Users
 
 For out-of-the-box use, publish GitHub Releases with prebuilt binaries. The release workflow builds:
@@ -131,21 +85,3 @@ For out-of-the-box use, publish GitHub Releases with prebuilt binaries. The rele
 - `sv-cli-windows-amd64.exe`
 
 A Mac user should download the matching `darwin` binary, rename it to `sv-cli`, allow it in macOS if Gatekeeper asks, and run it without installing Python, Go, or package dependencies.
-
-## Useful API Patterns
-
-Most list endpoints are `POST` endpoints with a JSON search body. Common fields:
-
-- `page`: starts at `0`
-- `pageSize`: defaults to `100`, maximum `1000`
-- `fields`: result fields to include
-- `search`: array of `{field, value, operator}` filters
-- `order`: array like `["lastname = asc"]`
-- `count`: return only the matching count
-
-Fetch the live OpenAPI document when in doubt:
-
-```bash
-curl -L https://appload.scopevisio.com/rest/swagger.json > /tmp/scopevisio-swagger.json
-jq '.paths["/contacts"]' /tmp/scopevisio-swagger.json
-```

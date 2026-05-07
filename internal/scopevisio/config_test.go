@@ -189,3 +189,40 @@ func TestScopevisioConfigWriteModes(t *testing.T) {
 		t.Fatalf("config mode = %o", mode)
 	}
 }
+
+func TestScopevisioConfigAuthLoginBytes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	raw := strings.Join([]string{
+		"# old comment",
+		"CUSTOMER=old-customer",
+		"BASE_URL=https://scopevisio.example",
+		"REST_REFRESH_TOKEN=old-token",
+		"UNKNOWN=preserved",
+		AuthLoginConfigHeader,
+		"REST_REFRESH_TOKEN=older-token",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configFile, err := ReadScopevisioConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := configFile.SetAuthLogin("new-customer", "new-token"); err != nil {
+		t.Fatal(err)
+	}
+
+	want := strings.Join([]string{
+		AuthLoginConfigHeader,
+		"CUSTOMER=new-customer",
+		"REST_REFRESH_TOKEN=new-token",
+		"# old comment",
+		"BASE_URL=https://scopevisio.example",
+		"UNKNOWN=preserved",
+		"",
+	}, "\n")
+	if got := string(configFile.Bytes()); got != want {
+		t.Fatalf("auth login config:\n%s\nwant:\n%s", got, want)
+	}
+}

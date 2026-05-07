@@ -16,21 +16,22 @@ Use Scopevisio's REST API through the repo helper first; fall back to raw `curl`
 
 ## Authentication
 
-Never ask the user for a password in chat if credentials can be loaded from environment variables or an existing token cache. Use a technical Scopevisio user for automation. Prefer refresh-token auth after the first login.
+Never ask the user for Initial credentials in chat if the Scopevisio config or an environment override already provides a REST refresh token. Use a technical Scopevisio user for automation.
 
-Minimal environment:
+One-time interactive setup:
 
 ```bash
-SCOPEVISIO_CUSTOMER=1234567
-SCOPEVISIO_ORGANISATION="Example GmbH"
-SCOPEVISIO_USERNAME=automation@example.com
-SCOPEVISIO_PASSWORD=...
+scopevisio auth login
 ```
 
-Create or refresh a token:
+`auth login` prompts on a TTY for customer number, username, password, and organisation ID, exchanges them for tokens, and writes `CUSTOMER` plus `REST_REFRESH_TOKEN` to the active Scopevisio config. It does not store the password or organisation ID.
+
+Inspect or manage the configured REST refresh token:
 
 ```bash
-scopevisio auth
+scopevisio auth show    # redacted token plus source=config or source=env:SCOPESKILL_REST_REFRESH_TOKEN
+scopevisio auth secret  # full token plus the same source label
+scopevisio auth delete  # remove REST_REFRESH_TOKEN from the Scopevisio config
 ```
 
 Check the active account:
@@ -38,6 +39,25 @@ Check the active account:
 ```bash
 scopevisio get /myaccount
 ```
+
+## Configuration
+
+The Scopevisio config is an env-file read by the Scopevisio CLI. v1 reads these keys:
+
+- `REST_REFRESH_TOKEN`
+- `CUSTOMER`
+- `BASE_URL`
+
+Environment overrides:
+
+- `SCOPESKILL_REST_REFRESH_TOKEN`
+- `SCOPESKILL_BASE_URL`
+- `SCOPESKILL_CONFIG`
+- `SCOPESKILL_ACCESS_TOKEN_CACHE`
+
+`SCOPESKILL_CUSTOMER` deliberately does not exist; switch identity with `--config` or `SCOPESKILL_CONFIG` so `CUSTOMER` and `REST_REFRESH_TOKEN` stay paired (see `docs/adr/0004-customer-not-an-env-override.md`). The bearer header is always `Authorization`; there is no `AUTH_HEADER` config key or auth-header environment override (see `docs/adr/0003-drop-auth-header-configurability.md`).
+
+The Access token cache is a separate, disposable per-fingerprint file for short-lived REST access tokens. Deleting it does not remove setup because the REST refresh token remains in the Scopevisio config (see `docs/adr/0002-access-token-cache-per-refresh-token.md`).
 
 ## Bookkeeping Calls
 
@@ -72,7 +92,7 @@ scopevisio get /teamworkbridge/folders \
 Upload a document:
 
 ```bash
-scopevisio teamwork-upload ./invoice.pdf \
+scopevisio teamwork upload ./invoice.pdf \
   --collection <collection-id> \
   --tag scopevisio-test
 ```

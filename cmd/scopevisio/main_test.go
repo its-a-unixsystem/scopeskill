@@ -33,8 +33,150 @@ func TestAuthHelpListsLogin(t *testing.T) {
 	if err := run([]string{"auth"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "login") {
-		t.Fatalf("auth help = %q", output.String())
+	for _, want := range []string{"login", "show", "secret", "delete"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("auth help missing %q in %q", want, output.String())
+		}
+	}
+}
+
+func TestAuthShowUsesConfigSource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=config-token-1234\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", path, "auth", "show"}); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSpace(output.String())
+	if got != "…1234  source=config" {
+		t.Fatalf("auth show = %q", got)
+	}
+	if strings.Contains(got, "config-token") {
+		t.Fatalf("auth show leaked token: %q", got)
+	}
+}
+
+func TestAuthShowUsesEnvSourceWhenOverrideIsSet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=config-token-1234\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(scopevisio.EnvRestRefreshToken, "env-token-abcd")
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", path, "auth", "show"}); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSpace(output.String())
+	if got != "…abcd  source=env:"+scopevisio.EnvRestRefreshToken {
+		t.Fatalf("auth show = %q", got)
+	}
+}
+
+func TestAuthSecretPrintsFullEffectiveToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=config-token-1234\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", path, "auth", "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSpace(output.String())
+	if got != "config-token-1234  source=config" {
+		t.Fatalf("auth secret = %q", got)
+	}
+}
+
+func TestAuthDeletePreservesConfigAndWarnsForEnvOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	raw := strings.Join([]string{
+		"# keep this comment",
+		"CUSTOMER=1234567",
+		"REST_REFRESH_TOKEN=old-token",
+		"BASE_URL=https://scopevisio.example",
+		"UNKNOWN=survives",
+		"REST_REFRESH_TOKEN=newer-token",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(scopevisio.EnvRestRefreshToken, "env-token")
+	_, stderr := withCLI(t, "", false)
+
+	if err := run([]string{"--config", path, "auth", "delete"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), scopevisio.EnvRestRefreshToken) || !strings.Contains(stderr.String(), "not affect the next call") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	want := strings.Join([]string{
+		"# keep this comment",
+		"CUSTOMER=1234567",
+		"BASE_URL=https://scopevisio.example",
+		"UNKNOWN=survives",
+		"",
+	}, "\n")
+	configRaw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(configRaw) != want {
+		t.Fatalf("config = %q, want %q", string(configRaw), want)
+	}
+	assertMode(t, path, 0o600)
+}
+
+func TestAuthCommandsRecommendLoginWhenTokenMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing")
+	for _, command := range []string{"show", "secret", "delete"} {
+		t.Run(command, func(t *testing.T) {
+			withCLI(t, "", false)
+			err := run([]string{"--config", path, "auth", command})
+			if err == nil || !strings.Contains(err.Error(), "auth login") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestRedactRESTRefreshTokenUsesFixedMaskAndLastFour(t *testing.T) {
+	short := redactRESTRefreshToken("1234")
+	long := redactRESTRefreshToken("a-much-longer-token-5678")
+	if short != "…1234" || long != "…5678" {
+		t.Fatalf("redacted tokens = %q, %q", short, long)
+	}
+	if len(short) != len(long) {
+		t.Fatalf("redaction lengths = %d, %d", len(short), len(long))
+	}
+}
+
+func TestAuthDeleteNoopsWhenOnlyEnvTokenExists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing")
+	t.Setenv(scopevisio.EnvRestRefreshToken, "env-token")
+	_, stderr := withCLI(t, "", false)
+
+	if err := run([]string{"--config", path, "auth", "delete"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), scopevisio.EnvRestRefreshToken) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("config stat error = %v", err)
+	}
+}
+
+func TestAuthShowRejectsUnexpectedArguments(t *testing.T) {
+	output, _ := withCLI(t, "", false)
+	err := run([]string{"auth", "show", "extra"})
+	if err == nil || !strings.Contains(err.Error(), "usage: scopevisio auth show") {
+		t.Fatalf("error = %v output=%q", err, output.String())
 	}
 }
 

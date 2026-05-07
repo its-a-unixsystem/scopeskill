@@ -24,6 +24,7 @@ type ScopevisioConfig struct {
 	lines   []configLine
 	values  map[string]string
 	touched map[string]string
+	deleted map[string]bool
 	login   bool
 }
 
@@ -110,6 +111,9 @@ func (c ScopevisioConfig) Values() map[string]string {
 	for key, value := range c.values {
 		values[key] = value
 	}
+	for key := range c.deleted {
+		delete(values, key)
+	}
 	for key, value := range c.touched {
 		values[key] = value
 	}
@@ -131,6 +135,23 @@ func (c *ScopevisioConfig) Set(key string, value string) error {
 	}
 	c.values[key] = strings.TrimSpace(value)
 	c.touched[key] = strings.TrimSpace(value)
+	delete(c.deleted, key)
+	return nil
+}
+
+func (c *ScopevisioConfig) Delete(key string) error {
+	if !validConfigKey(key) {
+		return fmt.Errorf("invalid config key: %s", key)
+	}
+	if c.values == nil {
+		c.values = map[string]string{}
+	}
+	if c.deleted == nil {
+		c.deleted = map[string]bool{}
+	}
+	delete(c.values, key)
+	delete(c.touched, key)
+	c.deleted[key] = true
 	return nil
 }
 
@@ -169,7 +190,7 @@ func (c ScopevisioConfig) Bytes() []byte {
 	if c.login {
 		return c.authLoginBytes()
 	}
-	if len(c.touched) == 0 {
+	if len(c.touched) == 0 && len(c.deleted) == 0 {
 		var builder strings.Builder
 		for _, line := range c.lines {
 			builder.WriteString(line.raw)
@@ -180,6 +201,9 @@ func (c ScopevisioConfig) Bytes() []byte {
 	written := map[string]bool{}
 	var builder strings.Builder
 	for _, line := range c.lines {
+		if c.deleted[line.key] {
+			continue
+		}
 		value, touched := c.touched[line.key]
 		if !touched {
 			builder.WriteString(line.raw)

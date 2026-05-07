@@ -18,54 +18,62 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) == 0 {
-		return usage()
-	}
-
-	client := scopevisio.NewClient(scopevisio.ConfigFromEnv())
-	switch args[0] {
-	case "auth":
-		return auth(client, args[1:])
-	case "get":
-		return get(client, args[1:])
-	case "post":
-		return post(client, args[1:])
-	case "download":
-		return download(client, args[1:])
-	case "teamwork-upload":
-		return teamworkUpload(client, args[1:])
-	case "help", "-h", "--help":
-		return usage()
-	default:
-		return fmt.Errorf("unknown command: %s", args[0])
-	}
-}
-
-func auth(client *scopevisio.Client, args []string) error {
-	flags := flag.NewFlagSet("auth", flag.ContinueOnError)
-	totp := flags.String("totp", "", "one-time password if required")
-	showToken := flags.Bool("show-token", false, "print token values")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	token, err := client.GetToken(*totp)
+	configPath, commandArgs, err := parseGlobalFlags(args)
 	if err != nil {
 		return err
 	}
-	if *showToken {
-		return printJSON(token.Payload)
+	if len(commandArgs) == 0 {
+		return usage()
 	}
-	payload := map[string]any{}
-	for key, value := range token.Payload {
-		payload[key] = value
+
+	switch commandArgs[0] {
+	case "auth":
+		return auth(commandArgs[1:])
+	case "help", "-h", "--help":
+		return usage()
+	case "get":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return get(client, commandArgs[1:])
+	case "post":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return post(client, commandArgs[1:])
+	case "download":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return download(client, commandArgs[1:])
+	case "teamwork-upload":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return teamworkUpload(client, commandArgs[1:])
+	default:
+		return fmt.Errorf("unknown command: %s", commandArgs[0])
 	}
-	if _, ok := payload["access_token"]; ok {
-		payload["access_token"] = "<redacted>"
+}
+
+func newClient(configPath string) (*scopevisio.Client, error) {
+	config, err := scopevisio.LoadClientConfig(configPath)
+	if err != nil {
+		return nil, err
 	}
-	if _, ok := payload["refresh_token"]; ok {
-		payload["refresh_token"] = "<redacted>"
+	return scopevisio.NewClient(config), nil
+}
+
+func auth(args []string) error {
+	if len(args) == 0 {
+		fmt.Println("usage: scopevisio auth <command>")
+		return nil
 	}
-	return printJSON(payload)
+	return fmt.Errorf("unknown auth command: %s", args[0])
 }
 
 func get(client *scopevisio.Client, args []string) error {
@@ -256,11 +264,20 @@ func normalizeFlagArgs(args []string) []string {
 	return append(flags, positionals...)
 }
 
+func parseGlobalFlags(args []string) (string, []string, error) {
+	flags := flag.NewFlagSet("scopevisio", flag.ContinueOnError)
+	configPath := flags.String("config", "", "Scopevisio config path")
+	if err := flags.Parse(args); err != nil {
+		return "", nil, err
+	}
+	return *configPath, flags.Args(), nil
+}
+
 func usage() error {
-	fmt.Println(`usage: scopevisio <command> [options]
+	fmt.Println(`usage: scopevisio [--config <path>] <command> [options]
 
 commands:
-  auth              create or refresh a token
+  auth              manage the configured REST refresh token
   get               run an authenticated GET request
   post              run an authenticated POST request
   download          download bytes from an authenticated endpoint

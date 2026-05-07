@@ -18,21 +18,17 @@ import (
 	"time"
 )
 
-const DefaultBaseURL = "https://appload.scopevisio.com/rest"
+const DefaultBaseURL = "https://appload.scopevisio.com"
+
+// Future two-factor Auth login support should submit the one-time password as totpResponse.
+const totpResponseFormField = "totpResponse"
 
 type Config struct {
-	BaseURL        string
-	Customer       string
-	Organisation   string
-	OrganisationID string
-	Username       string
-	Password       string
-	ClientID       string
-	ClientSecret   string
-	RefreshToken   string
-	AccessToken    string
-	TokenCache     string
-	AuthHeader     string
+	ConfigPath   string
+	BaseURL      string
+	Customer     string
+	RefreshToken string
+	AccessToken  string
 }
 
 type Token struct {
@@ -58,36 +54,9 @@ func (e APIError) Error() string {
 	return fmt.Sprintf("scopevisio returned HTTP %d: %s", e.StatusCode, e.Body)
 }
 
-func ConfigFromEnv() Config {
-	cfg := Config{
-		BaseURL:        getenv("SCOPEVISIO_BASE_URL", DefaultBaseURL),
-		Customer:       os.Getenv("SCOPEVISIO_CUSTOMER"),
-		Organisation:   os.Getenv("SCOPEVISIO_ORGANISATION"),
-		OrganisationID: os.Getenv("SCOPEVISIO_ORGANISATION_ID"),
-		Username:       os.Getenv("SCOPEVISIO_USERNAME"),
-		Password:       os.Getenv("SCOPEVISIO_PASSWORD"),
-		ClientID:       os.Getenv("SCOPEVISIO_CLIENT_ID"),
-		ClientSecret:   os.Getenv("SCOPEVISIO_CLIENT_SECRET"),
-		RefreshToken:   os.Getenv("SCOPEVISIO_REFRESH_TOKEN"),
-		AccessToken:    os.Getenv("SCOPEVISIO_ACCESS_TOKEN"),
-		TokenCache:     os.Getenv("SCOPEVISIO_TOKEN_CACHE"),
-		AuthHeader:     getenv("SCOPEVISIO_AUTH_HEADER", "Authorization"),
-	}
-	if cfg.TokenCache == "" {
-		cfg.TokenCache = defaultTokenCache()
-	}
-	return cfg
-}
-
 func NewClient(cfg Config) *Client {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = DefaultBaseURL
-	}
-	if cfg.AuthHeader == "" {
-		cfg.AuthHeader = "Authorization"
-	}
-	if cfg.TokenCache == "" {
-		cfg.TokenCache = defaultTokenCache()
 	}
 	return &Client{
 		Config:     cfg,
@@ -95,62 +64,23 @@ func NewClient(cfg Config) *Client {
 	}
 }
 
-func (c *Client) GetToken(totp string) (Token, error) {
+func (c *Client) GetToken() (Token, error) {
 	if c.Config.AccessToken != "" {
 		return Token{
-			TokenType:    "Bearer",
-			AccessToken:  c.Config.AccessToken,
-			RefreshToken: c.Config.RefreshToken,
-			ObtainedAt:   time.Now().Unix(),
+			TokenType:   "Bearer",
+			AccessToken: c.Config.AccessToken,
+			ObtainedAt:  time.Now().Unix(),
 		}, nil
 	}
-
-	cached, cacheErr := c.loadToken()
-	if cacheErr == nil && cached.AccessToken != "" && !cached.Expired() {
-		return cached, nil
+	if c.Config.RefreshToken == "" {
+		return Token{}, errors.New("missing REST refresh token; run scopevisio auth login or set REST_REFRESH_TOKEN in the Scopevisio config")
 	}
-
-	refreshToken := c.Config.RefreshToken
-	if refreshToken == "" {
-		refreshToken = cached.RefreshToken
-	}
-	if refreshToken != "" {
-		return c.RefreshToken(refreshToken)
-	}
-
-	return c.PasswordToken(totp)
-}
-
-func (c *Client) PasswordToken(totp string) (Token, error) {
-	missing := missingEnv(map[string]string{
-		"SCOPEVISIO_CUSTOMER": c.Config.Customer,
-		"SCOPEVISIO_USERNAME": c.Config.Username,
-		"SCOPEVISIO_PASSWORD": c.Config.Password,
-	})
-	if len(missing) > 0 {
-		return Token{}, fmt.Errorf("missing environment variables: %s", strings.Join(missing, ", "))
-	}
-
-	form := url.Values{}
-	form.Set("grant_type", "password")
-	form.Set("customer", c.Config.Customer)
-	form.Set("username", c.Config.Username)
-	form.Set("password", c.Config.Password)
-	if c.Config.Organisation != "" {
-		form.Set("organisation", c.Config.Organisation)
-	}
-	if c.Config.OrganisationID != "" {
-		form.Set("organisation_id", c.Config.OrganisationID)
-	}
-	if totp != "" {
-		form.Set("totpResponse", totp)
-	}
-	return c.requestToken(form)
+	return c.RefreshToken(c.Config.RefreshToken)
 }
 
 func (c *Client) RefreshToken(refreshToken string) (Token, error) {
 	if c.Config.Customer == "" {
-		return Token{}, errors.New("missing environment variable: SCOPEVISIO_CUSTOMER")
+		return Token{}, errors.New("missing CUSTOMER in Scopevisio config; refresh-token exchange requires CUSTOMER with REST_REFRESH_TOKEN")
 	}
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
@@ -297,13 +227,6 @@ func (t Token) Expired() bool {
 }
 
 func (c *Client) requestToken(form url.Values) (Token, error) {
-	if c.Config.ClientID != "" {
-		form.Set("client_id", c.Config.ClientID)
-	}
-	if c.Config.ClientSecret != "" {
-		form.Set("client_secret", c.Config.ClientSecret)
-	}
-
 	req, err := http.NewRequest(http.MethodPost, c.url("/token", nil), strings.NewReader(form.Encode()))
 	if err != nil {
 		return Token{}, err
@@ -330,15 +253,15 @@ func (c *Client) requestToken(form url.Values) (Token, error) {
 	if token.AccessToken == "" {
 		return Token{}, errors.New("token response did not include access_token")
 	}
-	return token, c.saveToken(token)
+	return token, nil
 }
 
 func (c *Client) authorize(req *http.Request) error {
-	token, err := c.GetToken("")
+	token, err := c.GetToken()
 	if err != nil {
 		return err
 	}
-	req.Header.Set(c.Config.AuthHeader, token.TokenType+" "+token.AccessToken)
+	req.Header.Set("Authorization", token.TokenType+" "+token.AccessToken)
 	return nil
 }
 
@@ -363,28 +286,11 @@ func (c *Client) url(path string, query map[string]string) string {
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 		return withQuery(path, query)
 	}
-	return withQuery(strings.TrimRight(c.Config.BaseURL, "/")+"/"+strings.TrimLeft(path, "/"), query)
-}
-
-func (c *Client) loadToken() (Token, error) {
-	raw, err := os.ReadFile(c.Config.TokenCache)
-	if err != nil {
-		return Token{}, err
+	baseURL := strings.TrimRight(c.Config.BaseURL, "/")
+	if !strings.HasSuffix(baseURL, "/rest") {
+		baseURL += "/rest"
 	}
-	var token Token
-	err = json.Unmarshal(raw, &token)
-	return token, err
-}
-
-func (c *Client) saveToken(token Token) error {
-	if err := os.MkdirAll(filepath.Dir(c.Config.TokenCache), 0o700); err != nil {
-		return err
-	}
-	raw, err := json.MarshalIndent(token, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(c.Config.TokenCache, raw, 0o600)
+	return withQuery(baseURL+"/"+strings.TrimLeft(path, "/"), query)
 }
 
 func ensureMetadata(metadata map[string]any) map[string]any {
@@ -418,36 +324,6 @@ func withQuery(raw string, query map[string]string) string {
 	}
 	parsed.RawQuery = values.Encode()
 	return parsed.String()
-}
-
-func getenv(key string, fallback string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-	return value
-}
-
-func defaultTokenCache() string {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		home, homeErr := os.UserHomeDir()
-		if homeErr != nil {
-			return ".scopevisio-token.json"
-		}
-		return filepath.Join(home, ".config", "scopeskill", "token.json")
-	}
-	return filepath.Join(configDir, "scopeskill", "token.json")
-}
-
-func missingEnv(values map[string]string) []string {
-	var missing []string
-	for key, value := range values {
-		if value == "" {
-			missing = append(missing, key)
-		}
-	}
-	return missing
 }
 
 func stringValue(value any, fallback string) string {

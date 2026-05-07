@@ -1,4 +1,4 @@
-package scopevisio
+package scopeskill
 
 import (
 	"encoding/json"
@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func TestRefreshTokenUsesScopevisioConfigFields(t *testing.T) {
+func TestRefreshTokenUsesConfigFileFields(t *testing.T) {
 	var form url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/rest/token" {
@@ -190,7 +190,7 @@ func TestJSONRequestAddsBearerToken(t *testing.T) {
 	}
 }
 
-func TestJSONRequestUsesScopevisioConfig(t *testing.T) {
+func TestJSONRequestUsesConfigFile(t *testing.T) {
 	var auth string
 	var tokenForm url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -279,8 +279,8 @@ func TestAccessTokenCacheMissAndHit(t *testing.T) {
 	if refreshCount != 1 {
 		t.Fatalf("refresh count = %d", refreshCount)
 	}
-	assertScopevisioMode(t, filepath.Dir(cachePath), 0o700)
-	assertScopevisioMode(t, cachePath, 0o600)
+	assertPrivateMode(t, filepath.Dir(cachePath), 0o700)
+	assertPrivateMode(t, cachePath, 0o600)
 }
 
 func TestAccessTokenCacheExpiredMiss(t *testing.T) {
@@ -439,7 +439,7 @@ func TestRefreshTokenUnauthorizedDeletesCacheAndKeepsConfig(t *testing.T) {
 
 func TestRefreshTokenServerErrorLeavesCacheAndConfig(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "scopevisio unavailable", http.StatusBadGateway)
+		http.Error(w, "service unavailable", http.StatusBadGateway)
 	}))
 	defer server.Close()
 
@@ -595,7 +595,7 @@ func TestTeamworkUploadUsesMultipartMetadataAndDocumentParts(t *testing.T) {
 	})
 	result, err := client.UploadTeamworkDocument(path, map[string]any{
 		"metadata": map[string]any{
-			"actions": map[string]any{"add-tag": []string{"scopevisio-test"}},
+			"actions": map[string]any{"add-tag": []string{"scopeskill-test"}},
 		},
 	})
 	if err != nil {
@@ -649,7 +649,7 @@ func assertFileBytes(t *testing.T, path string, want []byte) {
 	}
 }
 
-func assertScopevisioMode(t *testing.T, path string, want os.FileMode) {
+func assertPrivateMode(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
 	info, err := os.Stat(path)
 	if err != nil {

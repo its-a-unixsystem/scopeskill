@@ -1,4 +1,4 @@
-# Scopevisio Skill
+# scopeskill
 
 Codex skill plus helper client for Scopevisio automation.
 
@@ -17,7 +17,8 @@ The Swagger UI is backed by:
 - `references/auth.md`: token and login workflow.
 - `references/bookkeeping.md`: Scopevisio bookkeeping object map and API guardrails.
 - `references/teamworkbridge.md`: Teamwork/CenterDevice access, upload, and download workflow.
-- `cmd/scopevisio/`: small Go helper CLI. Build it as `sv-cli`.
+- `cmd/sv-cli/`: small Go helper CLI. Build it as `sv-cli`.
+- `internal/scopeskill/`: helper client and config package used by `sv-cli`.
 
 ## Setup
 
@@ -26,7 +27,7 @@ Create a technical user in Scopevisio and give it the required licences and righ
 Build locally:
 
 ```bash
-go build -o ./bin/sv-cli ./cmd/scopevisio
+go build -o ./bin/sv-cli ./cmd/sv-cli
 ```
 
 Run one-time interactive login:
@@ -35,7 +36,7 @@ Run one-time interactive login:
 ./bin/sv-cli auth login
 ```
 
-`auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active Scopevisio config. It never stores the initial username, password, or organisation ID.
+`auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active scopeskill config. It never stores the initial username, password, or organisation ID.
 
 Check authentication:
 
@@ -59,7 +60,7 @@ Search contacts:
 
 ## Configuration
 
-The Scopevisio config is an env-file. By default, `sv-cli` uses the user config directory; pass `--config <path>` or set `SCOPESKILL_CONFIG` to use a different file.
+The scopeskill config is an env-file. By default, `sv-cli` uses the user config directory; pass `--config <path>` or set `SCOPESKILL_CONFIG` to use a different file.
 
 Durable config keys:
 
@@ -78,31 +79,47 @@ Supported one-process environment overrides:
 
 REST access tokens are short-lived request credentials. `sv-cli` stores them in a separate disposable access-token cache, keyed by refresh-token fingerprint. REST refresh tokens are durable config credentials. Deleting the access-token cache does not remove setup; deleting `REST_REFRESH_TOKEN` from config does.
 
-## Teamworkbridge Smoke Test
+## List and Download Teamwork Documents
 
-List top-level folders for a collection:
+Start from an already configured `sv-cli`; `auth show` should print a redacted refresh token source:
+
+```bash
+./bin/sv-cli auth show
+```
+
+List collections, then copy the `id` from the collection you want:
+
+```bash
+./bin/sv-cli get /teamworkbridge/collections --query all=true
+```
+
+List documents in that collection:
+
+```bash
+./bin/sv-cli get /teamworkbridge/documents \
+  --query all=true \
+  --query collection=<collection-id>
+```
+
+Read one document's metadata:
+
+```bash
+./bin/sv-cli get /teamworkbridge/document/<document-id>
+```
+
+Download that document's bytes:
+
+```bash
+./bin/sv-cli download /teamworkbridge/document/<document-id> --out ./document.pdf
+```
+
+If you need folders inside a collection, list top-level folders first:
 
 ```bash
 ./bin/sv-cli get /teamworkbridge/folders \
   --query parent=none \
   --query collection=<collection-id>
 ```
-
-Download a document:
-
-```bash
-./bin/sv-cli download /teamworkbridge/document/<document-id> --out ./document.bin
-```
-
-Upload a document:
-
-```bash
-./bin/sv-cli teamwork upload ./invoice.pdf \
-  --collection <collection-id> \
-  --tag scopevisio-test
-```
-
-The current implementation keeps generic `get`, `post`, and `download` commands, plus grouped `teamwork upload` for multipart document upload. Folder and collection reads remain generic JSON calls until live Teamworkbridge tests prove a specialized command is useful.
 
 ## Non-Technical Users
 

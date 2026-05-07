@@ -12,24 +12,32 @@ The authenticated user also needs Teamwork rights in Scopevisio: System administ
 
 ## Access
 
-Retrieve a document resource:
+Starting from a logged-in `sv-cli`, list collections and choose a collection `id`:
+
+```bash
+sv-cli get /teamworkbridge/collections --query all=true
+```
+
+List documents in that collection:
+
+```bash
+sv-cli get /teamworkbridge/documents \
+  --query all=true \
+  --query collection=<collection-id>
+```
+
+Retrieve one document resource:
 
 ```bash
 sv-cli get /teamworkbridge/document/<document-id>
 ```
 
-List top-level folders of a collection:
+List top-level folders of a collection when folder traversal is needed:
 
 ```bash
 sv-cli get /teamworkbridge/folders \
   --query parent=none \
   --query collection=<collection-id>
-```
-
-List collections:
-
-```bash
-sv-cli get /teamworkbridge/collections --query all=true
 ```
 
 ## Download
@@ -49,7 +57,7 @@ Upload a new document with multipart form data:
 ```bash
 sv-cli teamwork upload ./invoice.pdf \
   --collection <collection-id> \
-  --tag scopevisio-test
+  --tag scopeskill-test
 ```
 
 Equivalent metadata shape:
@@ -65,7 +73,7 @@ Equivalent metadata shape:
     },
     "actions": {
       "add-to-collection": ["collection-id"],
-      "add-tag": ["scopevisio-test"]
+      "add-tag": ["scopeskill-test"]
     },
     "extended-metadata": {}
   }

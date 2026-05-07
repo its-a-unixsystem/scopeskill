@@ -90,6 +90,9 @@ func RecordsFromResponse(raw any) ([]any, error) {
 	case []any:
 		return v, nil
 	case map[string]any:
+		if r, ok := v["records"].([]any); ok {
+			return r, nil
+		}
 		if r, ok := v["results"].([]any); ok {
 			return r, nil
 		}
@@ -97,5 +100,5 @@ func RecordsFromResponse(raw any) ([]any, error) {
 			return r, nil
 		}
 	}
-	return nil, errors.New("unexpected search response shape: expected JSON array, or object with results/data array")
+	return nil, errors.New("unexpected search response shape: expected JSON array, or object with records/results/data array")
 }

@@ -159,7 +159,9 @@ func (c *Client) Login(credentials InitialCredentials) (Token, error) {
 	form.Set("customer", credentials.Customer)
 	form.Set("username", credentials.Username)
 	form.Set("password", credentials.Password)
-	form.Set("organisation_id", credentials.OrganisationID)
+	if credentials.OrganisationID != "" {
+		form.Set("organisation_id", credentials.OrganisationID)
+	}
 	return c.requestToken(form)
 }
 

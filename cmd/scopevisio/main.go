@@ -228,19 +228,19 @@ func authLogin(configPath string, args []string) error {
 }
 
 func promptInitialCredentials(reader *bufio.Reader) (scopevisio.InitialCredentials, error) {
-	customer, err := promptLine(reader, "Customer number: ")
+	customer, err := promptLine(reader, "Kundennummer: ")
 	if err != nil {
 		return scopevisio.InitialCredentials{}, err
 	}
-	username, err := promptLine(reader, "Username: ")
+	username, err := promptLine(reader, "Benutzername: ")
 	if err != nil {
 		return scopevisio.InitialCredentials{}, err
 	}
-	password, err := promptLine(reader, "Password: ")
+	password, err := promptLine(reader, "Passwort: ")
 	if err != nil {
 		return scopevisio.InitialCredentials{}, err
 	}
-	organisationID, err := promptLine(reader, "Organisation ID: ")
+	organisationID, err := promptLine(reader, "Organisations-ID (optional): ")
 	if err != nil {
 		return scopevisio.InitialCredentials{}, err
 	}
@@ -252,13 +252,11 @@ func promptInitialCredentials(reader *bufio.Reader) (scopevisio.InitialCredentia
 	}
 	switch {
 	case credentials.Customer == "":
-		return scopevisio.InitialCredentials{}, errors.New("customer number is required")
+		return scopevisio.InitialCredentials{}, errors.New("Kundennummer ist erforderlich")
 	case credentials.Username == "":
-		return scopevisio.InitialCredentials{}, errors.New("username is required")
+		return scopevisio.InitialCredentials{}, errors.New("Benutzername ist erforderlich")
 	case credentials.Password == "":
-		return scopevisio.InitialCredentials{}, errors.New("password is required")
-	case credentials.OrganisationID == "":
-		return scopevisio.InitialCredentials{}, errors.New("organisation ID is required")
+		return scopevisio.InitialCredentials{}, errors.New("Passwort ist erforderlich")
 	default:
 		return credentials, nil
 	}

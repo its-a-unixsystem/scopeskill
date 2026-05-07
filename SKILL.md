@@ -12,7 +12,7 @@ Use Scopevisio's REST API through the repo helper first; fall back to raw `curl`
 1. Read `references/auth.md` before creating or refreshing tokens.
 2. Read `references/bookkeeping.md` before changing contacts, products, projects, offers, orders, invoices, payments, journal data, tasks, or custom fields.
 3. Read `references/teamworkbridge.md` before accessing, uploading, or downloading Teamwork/CenterDevice documents.
-4. Prefer the compiled `scopevisio` binary. During development, use `go run ./cmd/scopevisio ...` from this repo.
+4. Prefer the compiled `sv-cli` binary. During development, use `go run ./cmd/scopevisio ...` from this repo.
 
 ## Authentication
 
@@ -21,28 +21,28 @@ Never ask the user for Initial credentials in chat if the Scopevisio config or a
 One-time interactive setup:
 
 ```bash
-scopevisio auth login
+sv-cli auth login
 ```
 
-`auth login` prompts on a TTY for customer number, username, password, and organisation ID, exchanges them for tokens, and writes `CUSTOMER` plus `REST_REFRESH_TOKEN` to the active Scopevisio config. It does not store the password or organisation ID.
+`auth login` prompts on a TTY for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID, exchanges them for tokens, and writes `CUSTOMER` plus `REST_REFRESH_TOKEN` to the active Scopevisio config. It does not store the username, password, or organisation ID.
 
 Inspect or manage the configured REST refresh token:
 
 ```bash
-scopevisio auth show    # redacted token plus source=config or source=env:SCOPESKILL_REST_REFRESH_TOKEN
-scopevisio auth secret  # full token plus the same source label
-scopevisio auth delete  # remove REST_REFRESH_TOKEN from the Scopevisio config
+sv-cli auth show    # redacted token plus source=config or source=env:SCOPESKILL_REST_REFRESH_TOKEN
+sv-cli auth secret  # full token plus the same source label
+sv-cli auth delete  # remove REST_REFRESH_TOKEN from the Scopevisio config
 ```
 
 Check the active account:
 
 ```bash
-scopevisio get /myaccount
+sv-cli get /myaccount
 ```
 
 ## Configuration
 
-The Scopevisio config is an env-file read by the Scopevisio CLI. v1 reads these keys:
+The Scopevisio config is an env-file read by `sv-cli`. v1 reads these keys:
 
 - `REST_REFRESH_TOKEN`
 - `CUSTOMER`
@@ -64,8 +64,8 @@ The Access token cache is a separate, disposable per-fingerprint file for short-
 Use the generic commands for JSON API calls:
 
 ```bash
-scopevisio get /myaccount
-scopevisio post /contacts --data '{"page":0,"pageSize":25}'
+sv-cli get /myaccount
+sv-cli post /contacts --data '{"page":0,"pageSize":25}'
 ```
 
 For list/search endpoints, assume Scopevisio usually expects `POST` plus a JSON search body. Keep changes narrow, verify required profiles in the live Swagger, and do not invent field names for custom fields.
@@ -77,14 +77,14 @@ Teamworkbridge maps CenterDevice API resources under Scopevisio's `/teamworkbrid
 Retrieve document metadata or download a document:
 
 ```bash
-scopevisio get /teamworkbridge/document/<document-id>
-scopevisio download /teamworkbridge/document/<document-id> --out ./document.bin
+sv-cli get /teamworkbridge/document/<document-id>
+sv-cli download /teamworkbridge/document/<document-id> --out ./document.bin
 ```
 
 List top-level folders for a collection:
 
 ```bash
-scopevisio get /teamworkbridge/folders \
+sv-cli get /teamworkbridge/folders \
   --query parent=none \
   --query collection=<collection-id>
 ```
@@ -92,7 +92,7 @@ scopevisio get /teamworkbridge/folders \
 Upload a document:
 
 ```bash
-scopevisio teamwork upload ./invoice.pdf \
+sv-cli teamwork upload ./invoice.pdf \
   --collection <collection-id> \
   --tag scopevisio-test
 ```

@@ -80,15 +80,100 @@ func newClient(configPath string) (*scopevisio.Client, error) {
 
 func auth(configPath string, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintln(cliOutput, "auth subcommands: login")
+		fmt.Fprintln(cliOutput, "auth subcommands: login show secret delete")
 		return nil
 	}
 	switch args[0] {
 	case "login":
 		return authLogin(configPath, args[1:])
+	case "show":
+		return authShow(configPath, args[1:])
+	case "secret":
+		return authSecret(configPath, args[1:])
+	case "delete":
+		return authDelete(configPath, args[1:])
 	default:
 		return fmt.Errorf("unknown auth command: %s", args[0])
 	}
+}
+
+func authShow(configPath string, args []string) error {
+	if len(args) != 0 {
+		return fmt.Errorf("usage: scopevisio auth show")
+	}
+	token, source, err := effectiveRESTRefreshToken(configPath)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cliOutput, "%s  source=%s\n", redactRESTRefreshToken(token), source)
+	return nil
+}
+
+func authSecret(configPath string, args []string) error {
+	if len(args) != 0 {
+		return fmt.Errorf("usage: scopevisio auth secret")
+	}
+	token, source, err := effectiveRESTRefreshToken(configPath)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cliOutput, "%s  source=%s\n", token, source)
+	return nil
+}
+
+func authDelete(configPath string, args []string) error {
+	if len(args) != 0 {
+		return fmt.Errorf("usage: scopevisio auth delete")
+	}
+	path := scopevisio.ResolveConfigPath(configPath)
+	configFile, err := scopevisio.ReadScopevisioConfig(path)
+	if err != nil {
+		return err
+	}
+	envToken := os.Getenv(scopevisio.EnvRestRefreshToken)
+	configToken := configFile.Values()[scopevisio.ConfigKeyRestRefreshToken]
+	if envToken == "" && configToken == "" {
+		return missingRESTRefreshTokenError()
+	}
+	if configToken != "" {
+		if err := configFile.Delete(scopevisio.ConfigKeyRestRefreshToken); err != nil {
+			return err
+		}
+		if err := configFile.Write(); err != nil {
+			return err
+		}
+	}
+	if envToken != "" {
+		fmt.Fprintf(cliError, "warning: %s is set; deleting REST_REFRESH_TOKEN from the Scopevisio config will not affect the next call\n", scopevisio.EnvRestRefreshToken)
+	}
+	return nil
+}
+
+func effectiveRESTRefreshToken(configPath string) (string, string, error) {
+	if token := os.Getenv(scopevisio.EnvRestRefreshToken); token != "" {
+		return token, "env:" + scopevisio.EnvRestRefreshToken, nil
+	}
+	path := scopevisio.ResolveConfigPath(configPath)
+	configFile, err := scopevisio.ReadScopevisioConfig(path)
+	if err != nil {
+		return "", "", err
+	}
+	token := configFile.Values()[scopevisio.ConfigKeyRestRefreshToken]
+	if token == "" {
+		return "", "", missingRESTRefreshTokenError()
+	}
+	return token, "config", nil
+}
+
+func missingRESTRefreshTokenError() error {
+	return errors.New("missing REST refresh token; run scopevisio auth login")
+}
+
+func redactRESTRefreshToken(token string) string {
+	if len(token) <= 4 {
+		return "…" + token
+	}
+	return "…" + token[len(token)-4:]
 }
 
 func authLogin(configPath string, args []string) error {

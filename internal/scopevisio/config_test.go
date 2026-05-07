@@ -226,3 +226,37 @@ func TestScopevisioConfigAuthLoginBytes(t *testing.T) {
 		t.Fatalf("auth login config:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestScopevisioConfigDeletePreservesOtherLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	raw := strings.Join([]string{
+		"# first",
+		"CUSTOMER=1234567",
+		"REST_REFRESH_TOKEN=old",
+		"UNKNOWN=value",
+		"REST_REFRESH_TOKEN=new",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configFile, err := ReadScopevisioConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := configFile.Delete(ConfigKeyRestRefreshToken); err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join([]string{
+		"# first",
+		"CUSTOMER=1234567",
+		"UNKNOWN=value",
+		"",
+	}, "\n")
+	if got := string(configFile.Bytes()); got != want {
+		t.Fatalf("deleted config:\n%s\nwant:\n%s", got, want)
+	}
+	if _, ok := configFile.Values()[ConfigKeyRestRefreshToken]; ok {
+		t.Fatal("REST refresh token survived delete")
+	}
+}

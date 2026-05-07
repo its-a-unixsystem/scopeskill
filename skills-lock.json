@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "brainstorming": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/brainstorming/SKILL.md",
+      "computedHash": "b27a55b85de6ca13c32212a41fe2e566705fdb59f2a74e0848146bfd481cc668"
+    },
     "caveman": {
       "source": "mattpocock/skills",
       "sourceType": "github",

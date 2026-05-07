@@ -21,7 +21,7 @@ A scriptable executable intended to be called by agents and other automation too
 _Avoid_: Interactive app, wizard
 
 **Initial credentials**:
-The Scopevisio customer number, username, password, organisation ID, and optional one-time password used only to obtain a token.
+The Scopevisio customer number, username, password, and organisation ID used only to obtain a token. Two-factor authentication is not handled in the first implementation; automation should use a technical user without 2FA.
 _Avoid_: Saved login, stored password
 
 **Customer number**:
@@ -91,27 +91,43 @@ _Avoid_: Teamwork document
 - A **Scopevisio config** stores the preferred `REST_REFRESH_TOKEN` and helper defaults for the **Scopevisio CLI**.
 - A **Scopevisio config** stores `CUSTOMER` with `REST_REFRESH_TOKEN` because refresh-token exchange requires the **Customer number**.
 - **Initial credentials** are collected by **Auth login** and are not read from **Scopevisio config** in the first implementation.
-- `ORGANISATION_ID` is collected for **Auth login** but is not stored in **Scopevisio config**.
+- `ORGANISATION_ID` may be collected for **Auth login** but is optional and is not stored in **Scopevisio config**.
 - A **Scopevisio config** uses simple env-file syntax for CLI parsing, not as a human-friendly preferences format.
+- The grammar is deliberately tiny: each line is blank, a `#`-prefixed comment (whitespace-then-`#` only, never inline), or `KEY=VALUE`. `KEY` matches `[A-Z_][A-Z0-9_]*` with no whitespace around `=`. `VALUE` is the literal text from after `=` to end-of-line with surrounding whitespace trimmed; no quoting, no escapes, no `$VAR` interpolation.
+- Unknown keys are silently ignored on read and preserved on rewrite. Duplicate keys: last wins on read; `auth login` deduplicates on write.
+- `auth login` writes keys in a stable order under a single header comment line, preserves unknown keys and prior comments, and keeps the file at mode `0600`.
 - `SCOPESKILL_*` environment variables override matching **Scopevisio config** values, including `REST_REFRESH_TOKEN`.
 - `--config` selects the **Scopevisio config** path; `SCOPESKILL_CONFIG` is the environment fallback for that path.
-- `SCOPESKILL_REST_REFRESH_TOKEN`, `SCOPESKILL_CUSTOMER`, `SCOPESKILL_BASE_URL`, and `SCOPESKILL_AUTH_HEADER` are **Environment overrides** for `REST_REFRESH_TOKEN`, `CUSTOMER`, `BASE_URL`, and `AUTH_HEADER`.
+- `SCOPESKILL_REST_REFRESH_TOKEN` and `SCOPESKILL_BASE_URL` are **Environment overrides** for `REST_REFRESH_TOKEN` and `BASE_URL`.
+- The default `BASE_URL` is `https://appload.scopevisio.com`, the documented Scopevisio REST host. No regional or staging detection is built in; alternative endpoints are reached by overriding the value.
+- `CUSTOMER` is not exposed as a standalone env override: the **REST refresh token** is minted for a specific customer, so varying `CUSTOMER` independently is a footgun. To switch identity wholesale, use `--config` or `SCOPESKILL_CONFIG` to point at a different **Scopevisio config** file.
+- `SCOPESKILL_REST_REFRESH_TOKEN` only works when the active **Scopevisio config** also contains the matching `CUSTOMER`, because the refresh exchange requires both.
+- The bearer auth header is hardcoded to `Authorization` because Scopevisio's Swagger and first-steps docs both specify `Authorization: Bearer <token>`; no override is exposed.
 - The default **Scopevisio config** belongs in the user's config directory; project-local secret files are not auto-discovered.
 - A **Config override** may point the **Scopevisio CLI** at a different config file for a specific run.
 - **Auth login** is the only interactive command and is responsible for writing `REST_REFRESH_TOKEN` to **Scopevisio config**.
-- **Auth login** initially prompts for customer number, username, password, and organisation ID.
+- **Auth login** is TTY-prompt only in the first implementation; non-interactive flags or `SCOPESKILL_LOGIN_*` env input are deferred until there is a concrete unattended-setup need.
+- **Auth login** prompts for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID.
+- **Auth login** refuses to overwrite an existing `REST_REFRESH_TOKEN` in **Scopevisio config** unless `--force` is passed.
+- **Auth login** warns when `SCOPESKILL_REST_REFRESH_TOKEN` is set in the environment, because that **Environment override** would shadow the freshly written token.
 - `auth` without a subcommand outputs one-line help for the auth command group.
-- **Auth show** displays a redacted **REST refresh token**.
-- **Auth secret** displays only the full configured **REST refresh token**.
-- **Auth delete** removes the configured **REST refresh token** from **Scopevisio config**.
+- **Auth show** displays a redacted **REST refresh token**, labelled with its source (`config` or `env:SCOPESKILL_REST_REFRESH_TOKEN`), and reflects the effective token that normal API calls would use.
+- **Auth secret** displays the full effective **REST refresh token**, labelled with its source.
+- **Auth delete** removes `REST_REFRESH_TOKEN` from **Scopevisio config** and warns when `SCOPESKILL_REST_REFRESH_TOKEN` is set in the environment, because the deletion does not take effect for the next call in that case.
 - Normal API calls use short-lived **REST access tokens** internally.
 - Normal API calls may reuse a valid **REST access token** from the **Access token cache**.
 - The **Access token cache** is separate from **Scopevisio config** and can be deleted without losing setup.
 - The default **Access token cache** lives in the user's cache directory and can be overridden with `SCOPESKILL_ACCESS_TOKEN_CACHE`.
+- The **Access token cache** filename is derived from the **REST refresh token** fingerprint (first 16 hex of SHA-256), so different refresh tokens (different customers / configs) cannot cross-pollute caches.
+- The cache directory is created with mode `0700` and cache files with mode `0600`, mirroring `.ssh` conventions; the **Scopevisio config** file uses the same restrictive permissions because it stores the **REST refresh token**.
 - Agents should advise the user to run **Auth login** when no **REST refresh token** exists or the configured **REST refresh token** is invalid.
 - Invalid-token errors should recommend **Auth login** without deleting the existing **REST refresh token** automatically.
+- On a 401/403 from the refresh-token exchange (or on a 401 from an API call made with a freshly minted **REST access token**), the **Scopevisio CLI** deletes the **Access token cache** file, leaves the **REST refresh token** in **Scopevisio config**, and exits non-zero with a message recommending **Auth login**.
+- On a 5xx or network failure during the refresh-token exchange, the **Scopevisio CLI** leaves both the **Access token cache** and **Scopevisio config** untouched and exits non-zero with a transient-error message; it does not conflate Scopevisio outages with revoked tokens.
 - A **Teamwork document** is the remote object; a **Local file** is the on-disk content uploaded or downloaded.
-- Teamwork folders are accessed through generic JSON calls in the first implementation; specialized commands are reserved for **Teamwork document** upload and download.
+- Teamwork folders are accessed through generic JSON calls in the first implementation.
+- `download <path> --out` is a generic binary GET and is not Teamwork-specific.
+- Teamwork-specific operations that need bespoke flags or formatting (currently only multipart upload) live under the `teamwork` subcommand group, e.g. `sv-cli teamwork upload`.
 
 ## Example dialogue
 
@@ -132,4 +148,4 @@ _Avoid_: Teamwork document
 - "REST token" was initially treated as singular. Resolved: Scopevisio returns a short-lived **REST access token** and a long-lived **REST refresh token**; the helper stores the refresh token and uses access tokens internally.
 - Environment override names were initially described with a `SCOPEVISIO_` prefix. Resolved: use `SCOPESKILL_*` because the variables belong to this helper, not the Scopevisio product.
 - "doc" and "file" were used casually for Teamworkbridge content. Resolved: use **Teamwork document** for the remote CenterDevice object and **Local file** for bytes on disk.
-- Teamwork upload/download command grouping is unresolved pending live tests. Current candidates are top-level commands, grouped `teamwork` subcommands, or a hybrid.
+- Teamwork upload/download command grouping. Resolved: hybrid. Generic `download <path>` stays top-level (it is just a binary GET); Teamwork-specific operations with bespoke flags (currently only multipart upload) live under `teamwork ...`.

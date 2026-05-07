@@ -12,3 +12,6 @@ dist/
 # AI stuff
 .claude/
 .agents/
+
+.gemini/
+gha-creds-*.json

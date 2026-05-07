@@ -79,31 +79,47 @@ Supported one-process environment overrides:
 
 REST access tokens are short-lived request credentials. `sv-cli` stores them in a separate disposable access-token cache, keyed by refresh-token fingerprint. REST refresh tokens are durable config credentials. Deleting the access-token cache does not remove setup; deleting `REST_REFRESH_TOKEN` from config does.
 
-## Teamworkbridge Smoke Test
+## List and Download Teamwork Documents
 
-List top-level folders for a collection:
+Start from an already configured `sv-cli`; `auth show` should print a redacted refresh token source:
+
+```bash
+./bin/sv-cli auth show
+```
+
+List collections, then copy the `id` from the collection you want:
+
+```bash
+./bin/sv-cli get /teamworkbridge/collections --query all=true
+```
+
+List documents in that collection:
+
+```bash
+./bin/sv-cli get /teamworkbridge/documents \
+  --query all=true \
+  --query collection=<collection-id>
+```
+
+Read one document's metadata:
+
+```bash
+./bin/sv-cli get /teamworkbridge/document/<document-id>
+```
+
+Download that document's bytes:
+
+```bash
+./bin/sv-cli download /teamworkbridge/document/<document-id> --out ./document.pdf
+```
+
+If you need folders inside a collection, list top-level folders first:
 
 ```bash
 ./bin/sv-cli get /teamworkbridge/folders \
   --query parent=none \
   --query collection=<collection-id>
 ```
-
-Download a document:
-
-```bash
-./bin/sv-cli download /teamworkbridge/document/<document-id> --out ./document.bin
-```
-
-Upload a document:
-
-```bash
-./bin/sv-cli teamwork upload ./invoice.pdf \
-  --collection <collection-id> \
-  --tag scopeskill-test
-```
-
-The current implementation keeps generic `get`, `post`, and `download` commands, plus grouped `teamwork upload` for multipart document upload. Folder and collection reads remain generic JSON calls until live Teamworkbridge tests prove a specialized command is useful.
 
 ## Non-Technical Users
 

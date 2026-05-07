@@ -70,31 +70,35 @@ sv-cli post /contacts --data '{"page":0,"pageSize":25}'
 
 For list/search endpoints, assume Scopevisio usually expects `POST` plus a JSON search body. Keep changes narrow, verify required profiles in the live Swagger, and do not invent field names for custom fields.
 
-## Teamworkbridge Test Workflow
+## Teamworkbridge Document Workflow
 
 Teamworkbridge maps CenterDevice API resources under Scopevisio's `/teamworkbridge/...` path and uses the Scopevisio token.
 
-Retrieve document metadata or download a document:
+From an already configured `sv-cli`, confirm the active refresh token source:
 
 ```bash
-sv-cli get /teamworkbridge/document/<document-id>
-sv-cli download /teamworkbridge/document/<document-id> --out ./document.bin
+sv-cli auth show
 ```
 
-List top-level folders for a collection:
+List collections, then copy the desired `id`:
 
 ```bash
-sv-cli get /teamworkbridge/folders \
-  --query parent=none \
+sv-cli get /teamworkbridge/collections --query all=true
+```
+
+List documents in a collection:
+
+```bash
+sv-cli get /teamworkbridge/documents \
+  --query all=true \
   --query collection=<collection-id>
 ```
 
-Upload a document:
+Retrieve document metadata or download the document bytes:
 
 ```bash
-sv-cli teamwork upload ./invoice.pdf \
-  --collection <collection-id> \
-  --tag scopeskill-test
+sv-cli get /teamworkbridge/document/<document-id>
+sv-cli download /teamworkbridge/document/<document-id> --out ./document.pdf
 ```
 
 If a command returns `404`, treat it as either not found or not visible to the authenticated user. Check user rights in Scopevisio under System administration -> DMS Teamwork -> Manage users.

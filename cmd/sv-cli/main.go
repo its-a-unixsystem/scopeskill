@@ -65,6 +65,12 @@ func run(args []string) error {
 			return err
 		}
 		return teamwork(client, commandArgs[1:])
+	case "sachkonto":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return sachkonto(client, commandArgs[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", commandArgs[0])
 	}
@@ -571,7 +577,8 @@ commands:
   get               run an authenticated GET request
   post              run an authenticated POST request
   download          download bytes from an authenticated endpoint
-  teamwork          Teamwork-specific operations`)
+  teamwork          Teamwork-specific operations
+  sachkonto         search and inspect Sachkonten`)
 	return nil
 }
 

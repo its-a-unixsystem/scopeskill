@@ -16,6 +16,7 @@ const (
 	EnvConfig           = "SCOPESKILL_CONFIG"
 	EnvBaseURL          = "SCOPESKILL_BASE_URL"
 	EnvRestRefreshToken = "SCOPESKILL_REST_REFRESH_TOKEN"
+	EnvAccessTokenCache = "SCOPESKILL_ACCESS_TOKEN_CACHE"
 )
 
 type ScopevisioConfig struct {
@@ -41,10 +42,11 @@ func LoadClientConfig(configPath string) (Config, error) {
 
 	values := file.Values()
 	config := Config{
-		ConfigPath:   path,
-		BaseURL:      valueOrDefault(values[ConfigKeyBaseURL], DefaultBaseURL),
-		Customer:     values[ConfigKeyCustomer],
-		RefreshToken: values[ConfigKeyRestRefreshToken],
+		ConfigPath:       path,
+		BaseURL:          valueOrDefault(values[ConfigKeyBaseURL], DefaultBaseURL),
+		Customer:         values[ConfigKeyCustomer],
+		RefreshToken:     values[ConfigKeyRestRefreshToken],
+		AccessTokenCache: os.Getenv(EnvAccessTokenCache),
 	}
 	if value := os.Getenv(EnvBaseURL); value != "" {
 		config.BaseURL = value

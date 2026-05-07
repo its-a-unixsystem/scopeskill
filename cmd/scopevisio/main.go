@@ -1,18 +1,28 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/its-a-unixsystem/scopeskill/internal/scopevisio"
 )
 
+var (
+	cliInput             = os.Stdin
+	cliOutput  io.Writer = os.Stdout
+	cliError   io.Writer = os.Stderr
+	isTerminal           = fileIsTerminal
+)
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(cliError, err)
 		os.Exit(1)
 	}
 }
@@ -28,7 +38,7 @@ func run(args []string) error {
 
 	switch commandArgs[0] {
 	case "auth":
-		return auth(commandArgs[1:])
+		return auth(configPath, commandArgs[1:])
 	case "help", "-h", "--help":
 		return usage()
 	case "get":
@@ -68,12 +78,114 @@ func newClient(configPath string) (*scopevisio.Client, error) {
 	return scopevisio.NewClient(config), nil
 }
 
-func auth(args []string) error {
+func auth(configPath string, args []string) error {
 	if len(args) == 0 {
-		fmt.Println("usage: scopevisio auth <command>")
+		fmt.Fprintln(cliOutput, "auth subcommands: login")
 		return nil
 	}
-	return fmt.Errorf("unknown auth command: %s", args[0])
+	switch args[0] {
+	case "login":
+		return authLogin(configPath, args[1:])
+	default:
+		return fmt.Errorf("unknown auth command: %s", args[0])
+	}
+}
+
+func authLogin(configPath string, args []string) error {
+	flags := flag.NewFlagSet("auth login", flag.ContinueOnError)
+	force := flags.Bool("force", false, "overwrite an existing REST refresh token")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("usage: scopevisio auth login [--force]")
+	}
+
+	path := scopevisio.ResolveConfigPath(configPath)
+	configFile, err := scopevisio.ReadScopevisioConfig(path)
+	if err != nil {
+		return err
+	}
+	if configFile.Values()[scopevisio.ConfigKeyRestRefreshToken] != "" && !*force {
+		return errors.New("Scopevisio config already contains REST_REFRESH_TOKEN; rerun scopevisio auth login --force to overwrite it")
+	}
+	if !isTerminal(cliInput) {
+		return errors.New("scopevisio auth login requires a TTY; stdin is not interactive")
+	}
+	if os.Getenv(scopevisio.EnvRestRefreshToken) != "" {
+		fmt.Fprintf(cliError, "warning: %s is set and will shadow the REST refresh token written to the Scopevisio config\n", scopevisio.EnvRestRefreshToken)
+	}
+
+	credentials, err := promptInitialCredentials(bufio.NewReader(cliInput))
+	if err != nil {
+		return err
+	}
+	baseConfig, err := scopevisio.LoadClientConfig(configPath)
+	if err != nil {
+		return err
+	}
+	client := scopevisio.NewClient(scopevisio.Config{BaseURL: baseConfig.BaseURL})
+	token, err := client.Login(credentials)
+	if err != nil {
+		return err
+	}
+	if token.RefreshToken == "" {
+		return errors.New("token response did not include refresh_token")
+	}
+	if err := configFile.SetAuthLogin(credentials.Customer, token.RefreshToken); err != nil {
+		return err
+	}
+	if err := configFile.Write(); err != nil {
+		return err
+	}
+	fmt.Fprintf(cliOutput, "Scopevisio config written: %s\n", path)
+	return nil
+}
+
+func promptInitialCredentials(reader *bufio.Reader) (scopevisio.InitialCredentials, error) {
+	customer, err := promptLine(reader, "Customer number: ")
+	if err != nil {
+		return scopevisio.InitialCredentials{}, err
+	}
+	username, err := promptLine(reader, "Username: ")
+	if err != nil {
+		return scopevisio.InitialCredentials{}, err
+	}
+	password, err := promptLine(reader, "Password: ")
+	if err != nil {
+		return scopevisio.InitialCredentials{}, err
+	}
+	organisationID, err := promptLine(reader, "Organisation ID: ")
+	if err != nil {
+		return scopevisio.InitialCredentials{}, err
+	}
+	credentials := scopevisio.InitialCredentials{
+		Customer:       customer,
+		Username:       username,
+		Password:       password,
+		OrganisationID: organisationID,
+	}
+	switch {
+	case credentials.Customer == "":
+		return scopevisio.InitialCredentials{}, errors.New("customer number is required")
+	case credentials.Username == "":
+		return scopevisio.InitialCredentials{}, errors.New("username is required")
+	case credentials.Password == "":
+		return scopevisio.InitialCredentials{}, errors.New("password is required")
+	case credentials.OrganisationID == "":
+		return scopevisio.InitialCredentials{}, errors.New("organisation ID is required")
+	default:
+		return credentials, nil
+	}
+}
+
+func promptLine(reader *bufio.Reader, prompt string) (string, error) {
+	fmt.Fprint(cliError, prompt)
+	value, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return strings.TrimSpace(value), nil
 }
 
 func get(client *scopevisio.Client, args []string) error {
@@ -129,7 +241,7 @@ func download(client *scopevisio.Client, args []string) error {
 	if err := client.Download(flags.Arg(0), *out, query); err != nil {
 		return err
 	}
-	fmt.Println(*out)
+	fmt.Fprintln(cliOutput, *out)
 	return nil
 }
 
@@ -239,7 +351,7 @@ func printJSON(value any) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(raw))
+	fmt.Fprintln(cliOutput, string(raw))
 	return nil
 }
 
@@ -274,7 +386,7 @@ func parseGlobalFlags(args []string) (string, []string, error) {
 }
 
 func usage() error {
-	fmt.Println(`usage: scopevisio [--config <path>] <command> [options]
+	fmt.Fprintln(cliOutput, `usage: scopevisio [--config <path>] <command> [options]
 
 commands:
   auth              manage the configured REST refresh token
@@ -283,4 +395,9 @@ commands:
   download          download bytes from an authenticated endpoint
   teamwork-upload   upload a document through Teamworkbridge`)
 	return nil
+}
+
+func fileIsTerminal(file *os.File) bool {
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

@@ -31,6 +31,13 @@ type Config struct {
 	AccessToken  string
 }
 
+type InitialCredentials struct {
+	Customer       string
+	Username       string
+	Password       string
+	OrganisationID string
+}
+
 type Token struct {
 	TokenType    string         `json:"token_type"`
 	AccessToken  string         `json:"access_token"`
@@ -86,6 +93,16 @@ func (c *Client) RefreshToken(refreshToken string) (Token, error) {
 	form.Set("grant_type", "refresh_token")
 	form.Set("customer", c.Config.Customer)
 	form.Set("refresh_token", refreshToken)
+	return c.requestToken(form)
+}
+
+func (c *Client) Login(credentials InitialCredentials) (Token, error) {
+	form := url.Values{}
+	form.Set("grant_type", "password")
+	form.Set("customer", credentials.Customer)
+	form.Set("username", credentials.Username)
+	form.Set("password", credentials.Password)
+	form.Set("organisation_id", credentials.OrganisationID)
 	return c.requestToken(form)
 }
 

@@ -11,6 +11,7 @@ const (
 	ConfigKeyBaseURL          = "BASE_URL"
 	ConfigKeyCustomer         = "CUSTOMER"
 	ConfigKeyRestRefreshToken = "REST_REFRESH_TOKEN"
+	AuthLoginConfigHeader     = "# scopeskill config — managed by 'scopevisio auth login'"
 
 	EnvConfig           = "SCOPESKILL_CONFIG"
 	EnvBaseURL          = "SCOPESKILL_BASE_URL"
@@ -22,6 +23,7 @@ type ScopevisioConfig struct {
 	lines   []configLine
 	values  map[string]string
 	touched map[string]string
+	login   bool
 }
 
 type configLine struct {
@@ -130,6 +132,17 @@ func (c *ScopevisioConfig) Set(key string, value string) error {
 	return nil
 }
 
+func (c *ScopevisioConfig) SetAuthLogin(customer string, restRefreshToken string) error {
+	if err := c.Set(ConfigKeyCustomer, customer); err != nil {
+		return err
+	}
+	if err := c.Set(ConfigKeyRestRefreshToken, restRefreshToken); err != nil {
+		return err
+	}
+	c.login = true
+	return nil
+}
+
 func (c ScopevisioConfig) Write() error {
 	if err := ensurePrivateConfigDir(filepath.Dir(c.Path)); err != nil {
 		return err
@@ -151,6 +164,9 @@ func (c ScopevisioConfig) Write() error {
 }
 
 func (c ScopevisioConfig) Bytes() []byte {
+	if c.login {
+		return c.authLoginBytes()
+	}
 	if len(c.touched) == 0 {
 		var builder strings.Builder
 		for _, line := range c.lines {
@@ -192,6 +208,31 @@ func (c ScopevisioConfig) Bytes() []byte {
 		written[key] = true
 	}
 
+	return []byte(builder.String())
+}
+
+func (c ScopevisioConfig) authLoginBytes() []byte {
+	values := c.Values()
+	var builder strings.Builder
+	builder.WriteString(AuthLoginConfigHeader)
+	builder.WriteByte('\n')
+	builder.WriteString(ConfigKeyCustomer)
+	builder.WriteByte('=')
+	builder.WriteString(values[ConfigKeyCustomer])
+	builder.WriteByte('\n')
+	builder.WriteString(ConfigKeyRestRefreshToken)
+	builder.WriteByte('=')
+	builder.WriteString(values[ConfigKeyRestRefreshToken])
+	builder.WriteByte('\n')
+	for _, line := range c.lines {
+		if line.key == ConfigKeyCustomer || line.key == ConfigKeyRestRefreshToken {
+			continue
+		}
+		if strings.TrimRight(line.raw, "\r\n") == AuthLoginConfigHeader {
+			continue
+		}
+		builder.WriteString(line.raw)
+	}
 	return []byte(builder.String())
 }
 

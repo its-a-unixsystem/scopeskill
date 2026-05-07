@@ -1,4 +1,4 @@
-package scopevisio
+package scopeskill
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ const (
 	EnvAccessTokenCache = "SCOPESKILL_ACCESS_TOKEN_CACHE"
 )
 
-type ScopevisioConfig struct {
+type ConfigFile struct {
 	Path    string
 	lines   []configLine
 	values  map[string]string
@@ -36,7 +36,7 @@ type configLine struct {
 
 func LoadClientConfig(configPath string) (Config, error) {
 	path := ResolveConfigPath(configPath)
-	file, err := ReadScopevisioConfig(path)
+	file, err := ReadConfigFile(path)
 	if err != nil {
 		return Config{}, err
 	}
@@ -80,23 +80,23 @@ func DefaultConfigPath() string {
 	return filepath.Join(".config", "scopeskill", "config")
 }
 
-func ReadScopevisioConfig(path string) (ScopevisioConfig, error) {
+func ReadConfigFile(path string) (ConfigFile, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return ScopevisioConfig{Path: path, values: map[string]string{}}, nil
+			return ConfigFile{Path: path, values: map[string]string{}}, nil
 		}
-		return ScopevisioConfig{}, err
+		return ConfigFile{}, err
 	}
 
-	file := ScopevisioConfig{
+	file := ConfigFile{
 		Path:   path,
 		values: map[string]string{},
 	}
 	for index, rawLine := range splitConfigLines(string(raw)) {
 		line, err := parseConfigLine(rawLine, index+1)
 		if err != nil {
-			return ScopevisioConfig{}, err
+			return ConfigFile{}, err
 		}
 		file.lines = append(file.lines, line)
 		if line.key != "" {
@@ -106,7 +106,7 @@ func ReadScopevisioConfig(path string) (ScopevisioConfig, error) {
 	return file, nil
 }
 
-func (c ScopevisioConfig) Values() map[string]string {
+func (c ConfigFile) Values() map[string]string {
 	values := map[string]string{}
 	for key, value := range c.values {
 		values[key] = value
@@ -120,7 +120,7 @@ func (c ScopevisioConfig) Values() map[string]string {
 	return values
 }
 
-func (c *ScopevisioConfig) Set(key string, value string) error {
+func (c *ConfigFile) Set(key string, value string) error {
 	if !validConfigKey(key) {
 		return fmt.Errorf("invalid config key: %s", key)
 	}
@@ -139,7 +139,7 @@ func (c *ScopevisioConfig) Set(key string, value string) error {
 	return nil
 }
 
-func (c *ScopevisioConfig) Delete(key string) error {
+func (c *ConfigFile) Delete(key string) error {
 	if !validConfigKey(key) {
 		return fmt.Errorf("invalid config key: %s", key)
 	}
@@ -155,7 +155,7 @@ func (c *ScopevisioConfig) Delete(key string) error {
 	return nil
 }
 
-func (c *ScopevisioConfig) SetAuthLogin(customer string, restRefreshToken string) error {
+func (c *ConfigFile) SetAuthLogin(customer string, restRefreshToken string) error {
 	if err := c.Set(ConfigKeyCustomer, customer); err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func (c *ScopevisioConfig) SetAuthLogin(customer string, restRefreshToken string
 	return nil
 }
 
-func (c ScopevisioConfig) Write() error {
+func (c ConfigFile) Write() error {
 	if err := ensurePrivateConfigDir(filepath.Dir(c.Path)); err != nil {
 		return err
 	}
@@ -186,7 +186,7 @@ func (c ScopevisioConfig) Write() error {
 	return os.Chmod(c.Path, 0o600)
 }
 
-func (c ScopevisioConfig) Bytes() []byte {
+func (c ConfigFile) Bytes() []byte {
 	if c.login {
 		return c.authLoginBytes()
 	}
@@ -237,7 +237,7 @@ func (c ScopevisioConfig) Bytes() []byte {
 	return []byte(builder.String())
 }
 
-func (c ScopevisioConfig) authLoginBytes() []byte {
+func (c ConfigFile) authLoginBytes() []byte {
 	values := c.Values()
 	var builder strings.Builder
 	builder.WriteString(AuthLoginConfigHeader)
@@ -273,7 +273,7 @@ func parseConfigLine(rawLine string, lineNumber int) (configLine, error) {
 	}
 	key, value, ok := strings.Cut(content, "=")
 	if !ok || !validConfigKey(key) {
-		return configLine{}, fmt.Errorf("invalid Scopevisio config line %d: expected KEY=VALUE", lineNumber)
+		return configLine{}, fmt.Errorf("invalid scopeskill config line %d: expected KEY=VALUE", lineNumber)
 	}
 	return configLine{raw: rawLine, key: key, value: strings.TrimSpace(value)}, nil
 }

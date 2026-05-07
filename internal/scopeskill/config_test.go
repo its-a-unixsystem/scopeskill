@@ -1,4 +1,4 @@
-package scopevisio
+package scopeskill
 
 import (
 	"os"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestScopevisioConfigEnvFileGrammar(t *testing.T) {
+func TestConfigFileEnvFileGrammar(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config")
 	raw := strings.Join([]string{
 		"# first",
@@ -23,7 +23,7 @@ func TestScopevisioConfigEnvFileGrammar(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	configFile, err := ReadScopevisioConfig(path)
+	configFile, err := ReadConfigFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestScopevisioConfigEnvFileGrammar(t *testing.T) {
 	}
 }
 
-func TestScopevisioConfigRejectsInvalidGrammar(t *testing.T) {
+func TestConfigFileRejectsInvalidGrammar(t *testing.T) {
 	for _, raw := range []string{
 		"KEY =value\n",
 		"1KEY=value\n",
@@ -69,7 +69,7 @@ func TestScopevisioConfigRejectsInvalidGrammar(t *testing.T) {
 			if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := ReadScopevisioConfig(path); err == nil {
+			if _, err := ReadConfigFile(path); err == nil {
 				t.Fatal("expected invalid config error")
 			}
 		})
@@ -161,9 +161,9 @@ func TestLoadClientConfigDefaultBaseURL(t *testing.T) {
 	}
 }
 
-func TestScopevisioConfigWriteModes(t *testing.T) {
+func TestConfigFileWriteModes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config")
-	configFile := ScopevisioConfig{Path: path}
+	configFile := ConfigFile{Path: path}
 	if err := configFile.Set(ConfigKeyCustomer, "1234567"); err != nil {
 		t.Fatal(err)
 	}
@@ -190,12 +190,12 @@ func TestScopevisioConfigWriteModes(t *testing.T) {
 	}
 }
 
-func TestScopevisioConfigAuthLoginBytes(t *testing.T) {
+func TestConfigFileAuthLoginBytes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config")
 	raw := strings.Join([]string{
 		"# old comment",
 		"CUSTOMER=old-customer",
-		"BASE_URL=https://scopevisio.example",
+		"BASE_URL=https://scopeskill.example",
 		"REST_REFRESH_TOKEN=old-token",
 		"UNKNOWN=preserved",
 		AuthLoginConfigHeader,
@@ -205,7 +205,7 @@ func TestScopevisioConfigAuthLoginBytes(t *testing.T) {
 	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	configFile, err := ReadScopevisioConfig(path)
+	configFile, err := ReadConfigFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestScopevisioConfigAuthLoginBytes(t *testing.T) {
 		"CUSTOMER=new-customer",
 		"REST_REFRESH_TOKEN=new-token",
 		"# old comment",
-		"BASE_URL=https://scopevisio.example",
+		"BASE_URL=https://scopeskill.example",
 		"UNKNOWN=preserved",
 		"",
 	}, "\n")
@@ -227,7 +227,7 @@ func TestScopevisioConfigAuthLoginBytes(t *testing.T) {
 	}
 }
 
-func TestScopevisioConfigDeletePreservesOtherLines(t *testing.T) {
+func TestConfigFileDeletePreservesOtherLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config")
 	raw := strings.Join([]string{
 		"# first",
@@ -240,7 +240,7 @@ func TestScopevisioConfigDeletePreservesOtherLines(t *testing.T) {
 	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	configFile, err := ReadScopevisioConfig(path)
+	configFile, err := ReadConfigFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}

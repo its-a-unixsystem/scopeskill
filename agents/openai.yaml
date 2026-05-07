@@ -1,4 +1,4 @@
 interface:
-  display_name: "Scopevisio"
-  short_description: "Automate Scopevisio and Teamwork documents"
-  default_prompt: "Use $scopevisio to authenticate with Scopevisio and manage Teamwork documents."
+  display_name: "Scopeskill"
+  short_description: "Automate bookkeeping and Teamwork documents"
+  default_prompt: "Use $scopeskill to authenticate and manage Teamwork documents."

@@ -77,6 +77,18 @@ func run(args []string) error {
 			return err
 		}
 		return kontakt(client, commandArgs[1:])
+	case "debitor":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return debitor(client, commandArgs[1:])
+	case "kreditor":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return kreditor(client, commandArgs[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", commandArgs[0])
 	}

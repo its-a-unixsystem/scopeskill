@@ -56,6 +56,51 @@ func TestRefreshTokenUsesScopevisioConfigFields(t *testing.T) {
 	}
 }
 
+func TestLoginUsesInitialCredentials(t *testing.T) {
+	var form url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/token" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		form = r.PostForm
+		writeJSON(w, map[string]any{
+			"token_type":    "Bearer",
+			"access_token":  "access-1",
+			"refresh_token": "refresh-1",
+			"expires_in":    3600,
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{BaseURL: server.URL})
+	token, err := client.Login(InitialCredentials{
+		Customer:       "1234567",
+		Username:       "tech@example.com",
+		Password:       "secret-password",
+		OrganisationID: "42",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token.RefreshToken != "refresh-1" {
+		t.Fatalf("refresh token = %q", token.RefreshToken)
+	}
+	for key, want := range map[string]string{
+		"grant_type":      "password",
+		"customer":        "1234567",
+		"username":        "tech@example.com",
+		"password":        "secret-password",
+		"organisation_id": "42",
+	} {
+		if got := form.Get(key); got != want {
+			t.Fatalf("%s = %q", key, got)
+		}
+	}
+}
+
 func TestJSONRequestAddsBearerToken(t *testing.T) {
 	var auth string
 	var requestBody map[string]any

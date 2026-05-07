@@ -21,7 +21,7 @@ A scriptable executable intended to be called by agents and other automation too
 _Avoid_: Interactive app, wizard
 
 **Initial credentials**:
-The Scopevisio customer number, username, password, and organisation ID used only to obtain a token. Two-factor authentication is not handled in the first implementation; automation should use a technical user without 2FA.
+The Scopevisio customer number, username, password, and optional organisation ID used only to obtain a token. Two-factor authentication is not handled in the first implementation; automation should use a technical user without 2FA.
 _Avoid_: Saved login, stored password
 
 **Customer number**:
@@ -107,7 +107,7 @@ _Avoid_: Teamwork document
 - A **Config override** may point the **Scopevisio CLI** at a different config file for a specific run.
 - **Auth login** is the only interactive command and is responsible for writing `REST_REFRESH_TOKEN` to **Scopevisio config**.
 - **Auth login** is TTY-prompt only in the first implementation; non-interactive flags or `SCOPESKILL_LOGIN_*` env input are deferred until there is a concrete unattended-setup need.
-- **Auth login** prompts for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID.
+- **Auth login** prompts for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`.
 - **Auth login** refuses to overwrite an existing `REST_REFRESH_TOKEN` in **Scopevisio config** unless `--force` is passed.
 - **Auth login** warns when `SCOPESKILL_REST_REFRESH_TOKEN` is set in the environment, because that **Environment override** would shadow the freshly written token.
 - `auth` without a subcommand outputs one-line help for the auth command group.

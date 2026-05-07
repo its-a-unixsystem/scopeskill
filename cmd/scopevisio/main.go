@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/its-a-unixsystem/scopeskill/internal/scopevisio"
+	"golang.org/x/term"
 )
 
 var (
@@ -201,7 +201,7 @@ func authLogin(configPath string, args []string) error {
 		fmt.Fprintf(cliError, "warning: %s is set and will shadow the REST refresh token written to the Scopevisio config\n", scopevisio.EnvRestRefreshToken)
 	}
 
-	credentials, err := promptInitialCredentials(bufio.NewReader(cliInput))
+	credentials, err := promptInitialCredentials()
 	if err != nil {
 		return err
 	}
@@ -227,20 +227,20 @@ func authLogin(configPath string, args []string) error {
 	return nil
 }
 
-func promptInitialCredentials(reader *bufio.Reader) (scopevisio.InitialCredentials, error) {
-	customer, err := promptLine(reader, "Kundennummer: ")
+func promptInitialCredentials() (scopevisio.InitialCredentials, error) {
+	customer, err := promptLine("Kundennummer: ")
 	if err != nil {
 		return scopevisio.InitialCredentials{}, err
 	}
-	username, err := promptLine(reader, "Benutzername: ")
+	username, err := promptLine("Benutzername: ")
 	if err != nil {
 		return scopevisio.InitialCredentials{}, err
 	}
-	password, err := promptLine(reader, "Passwort: ")
+	password, err := promptPassword("Passwort: ")
 	if err != nil {
 		return scopevisio.InitialCredentials{}, err
 	}
-	organisationID, err := promptLine(reader, "Organisations-ID (optional): ")
+	organisationID, err := promptLine("Organisations-ID (optional): ")
 	if err != nil {
 		return scopevisio.InitialCredentials{}, err
 	}
@@ -262,13 +262,95 @@ func promptInitialCredentials(reader *bufio.Reader) (scopevisio.InitialCredentia
 	}
 }
 
-func promptLine(reader *bufio.Reader, prompt string) (string, error) {
+func promptLine(prompt string) (string, error) {
 	fmt.Fprint(cliError, prompt)
-	value, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
+	return readLine(cliInput)
+}
+
+func promptPassword(prompt string) (string, error) {
+	if term.IsTerminal(int(cliInput.Fd())) {
+		return promptMaskedPassword(cliInput, prompt)
+	}
+	return promptMaskedLine(prompt)
+}
+
+func promptMaskedPassword(input *os.File, prompt string) (string, error) {
+	fileDescriptor := int(input.Fd())
+	if !term.IsTerminal(fileDescriptor) {
+		return "", errors.New("password input is not a terminal")
+	}
+	state, err := term.MakeRaw(fileDescriptor)
+	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(value), nil
+	defer term.Restore(fileDescriptor, state)
+
+	fmt.Fprint(cliError, prompt)
+	var builder strings.Builder
+	buffer := make([]byte, 1)
+	for {
+		bytesRead, err := input.Read(buffer)
+		if err != nil {
+			return "", err
+		}
+		if bytesRead == 0 {
+			continue
+		}
+		switch value := buffer[0]; value {
+		case '\r', '\n':
+			fmt.Fprintln(cliError)
+			return strings.TrimSpace(builder.String()), nil
+		case 0x03:
+			return "", errors.New("password prompt interrupted")
+		case 0x04:
+			return "", io.EOF
+		case '\b', 0x7f:
+			if builder.Len() > 0 {
+				currentValue := builder.String()
+				builder.Reset()
+				builder.WriteString(currentValue[:len(currentValue)-1])
+				fmt.Fprint(cliError, "\b \b")
+			}
+		default:
+			if value >= ' ' {
+				builder.WriteByte(value)
+				fmt.Fprint(cliError, "*")
+			}
+		}
+	}
+}
+
+func promptMaskedLine(prompt string) (string, error) {
+	fmt.Fprint(cliError, prompt)
+	trimmedValue, err := readLine(cliInput)
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintln(cliError, strings.Repeat("*", len([]rune(trimmedValue))))
+	return trimmedValue, nil
+}
+
+func readLine(input *os.File) (string, error) {
+	var builder strings.Builder
+	buffer := make([]byte, 1)
+	for {
+		bytesRead, err := input.Read(buffer)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return strings.TrimSpace(builder.String()), nil
+			}
+			return "", err
+		}
+		if bytesRead == 0 {
+			continue
+		}
+		switch value := buffer[0]; value {
+		case '\r', '\n':
+			return strings.TrimSpace(builder.String()), nil
+		default:
+			builder.WriteByte(value)
+		}
+	}
 }
 
 func get(client *scopevisio.Client, args []string) error {

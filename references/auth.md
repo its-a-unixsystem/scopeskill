@@ -4,7 +4,7 @@ Scopevisio uses OAuth2-style bearer tokens for REST calls.
 
 ## Credential Vocabulary
 
-- Initial credentials: Kundennummer, Benutzername, Passwort, and an optional Organisations-ID. `sv-cli auth login` collects these from a TTY and never stores them.
+- Initial credentials: Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. `sv-cli auth login` collects these from a TTY and never stores them.
 - REST refresh token: durable config credential stored as `REST_REFRESH_TOKEN` with the paired `CUSTOMER` customer number.
 - REST access token: short-lived request credential obtained from the refresh token and stored only in the disposable access-token cache.
 

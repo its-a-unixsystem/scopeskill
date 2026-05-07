@@ -95,6 +95,18 @@ func run(args []string) error {
 			return err
 		}
 		return offenePosten(client, commandArgs[1:])
+	case "journal":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return journal(client, commandArgs[1:])
+	case "buchung":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return buchung(client, commandArgs[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", commandArgs[0])
 	}

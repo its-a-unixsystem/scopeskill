@@ -18,12 +18,15 @@ const (
 	OpContains   SearchOperator = "contains"
 	OpEquals     SearchOperator = "equals"
 	OpNotEquals  SearchOperator = "notequals"
+	OpGreater    SearchOperator = "greater"
+	OpGreaterEq  SearchOperator = "greaterorequals"
 	OpLess       SearchOperator = "less"
+	OpLessEq     SearchOperator = "lessorequals"
 )
 
 func (op SearchOperator) Valid() bool {
 	switch op {
-	case OpStartsWith, OpEndsWith, OpContains, OpEquals, OpNotEquals, OpLess:
+	case OpStartsWith, OpEndsWith, OpContains, OpEquals, OpNotEquals, OpGreater, OpGreaterEq, OpLess, OpLessEq:
 		return true
 	}
 	return false

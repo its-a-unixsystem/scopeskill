@@ -31,6 +31,8 @@ Many list endpoints are `POST` endpoints with a JSON body. Common keys:
 
 Use `pageSize <= 1000`. Use `count` only when the endpoint docs say count is supported.
 
+Search operators use Scopevisio's no-space vocabulary, for example `contains`, `startswith`, `endswith`, `equals`, and `notequals`. Do not insert spaces inside operator names.
+
 ## Updates
 
 Omit fields that should stay unchanged. Scopevisio treats some nullable fields differently: for nullable fields, `null` or `""` can clear data; for mandatory fields, `null` or `""` is ignored.

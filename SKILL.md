@@ -12,7 +12,8 @@ Use Scopevisio's REST API through the repo helper first; fall back to raw `curl`
 1. Read `references/auth.md` before creating or refreshing tokens.
 2. Read `references/bookkeeping.md` before changing contacts, products, projects, offers, orders, invoices, payments, journal data, tasks, or custom fields.
 3. Read `references/teamworkbridge.md` before accessing, uploading, or downloading Teamwork/CenterDevice documents.
-4. Prefer the compiled `sv-cli` binary. During development, use `go run ./cmd/sv-cli ...` from this repo.
+4. Before interpreting Kontonummern, run `sv-cli auth show` and read `SKR` from the scopeskill config. `auth login` probes and stores it; if it is missing, read `references/skr-overview.md` and only then use the documented 4400/8400 fallback heuristic.
+5. Prefer the compiled `sv-cli` binary. During development, use `go run ./cmd/sv-cli ...` from this repo.
 
 ## Authentication
 
@@ -34,6 +35,8 @@ sv-cli auth secret  # full token plus the same source label
 sv-cli auth delete  # remove REST_REFRESH_TOKEN from the scopeskill config
 ```
 
+`auth login` also runs Unternehmen probes. For bookkeeping, it stores `SKR=skr03` or `SKR=skr04` when the Mandant's standard Erlöskonto probe is conclusive.
+
 Check the active account:
 
 ```bash
@@ -46,6 +49,7 @@ The scopeskill config is an env-file read by `sv-cli`. v1 reads these keys:
 
 - `REST_REFRESH_TOKEN`
 - `CUSTOMER`
+- `SKR`
 - `BASE_URL`
 
 Environment overrides:
@@ -69,6 +73,8 @@ sv-cli post /contacts --data '{"page":0,"pageSize":25}'
 ```
 
 For list/search endpoints, assume Scopevisio usually expects `POST` plus a JSON search body. Keep changes narrow, verify required profiles in the live Swagger, and do not invent field names for custom fields.
+
+For SKR-specific account interpretation, use `SKR` from config and then read `references/skr03.csv` or `references/skr04.csv`. Do not guess SKR03 vs SKR04 from a single Kontonummer if the config is missing and the 4400/8400 probe is inconclusive.
 
 ## Teamworkbridge Document Workflow
 

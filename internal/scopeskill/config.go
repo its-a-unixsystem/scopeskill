@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -239,25 +240,52 @@ func (c ConfigFile) Bytes() []byte {
 
 func (c ConfigFile) authLoginBytes() []byte {
 	values := c.Values()
+	written := map[string]bool{}
 	var builder strings.Builder
 	builder.WriteString(AuthLoginConfigHeader)
 	builder.WriteByte('\n')
-	builder.WriteString(ConfigKeyCustomer)
-	builder.WriteByte('=')
-	builder.WriteString(values[ConfigKeyCustomer])
-	builder.WriteByte('\n')
-	builder.WriteString(ConfigKeyRestRefreshToken)
-	builder.WriteByte('=')
-	builder.WriteString(values[ConfigKeyRestRefreshToken])
-	builder.WriteByte('\n')
+	for _, key := range []string{ConfigKeyCustomer, ConfigKeyRestRefreshToken} {
+		builder.WriteString(key)
+		builder.WriteByte('=')
+		builder.WriteString(values[key])
+		builder.WriteByte('\n')
+		written[key] = true
+	}
 	for _, line := range c.lines {
-		if line.key == ConfigKeyCustomer || line.key == ConfigKeyRestRefreshToken {
+		if line.key != "" && (written[line.key] || c.deleted[line.key]) {
 			continue
 		}
 		if strings.TrimRight(line.raw, "\r\n") == AuthLoginConfigHeader {
 			continue
 		}
+		if line.key != "" {
+			if value, touched := c.touched[line.key]; touched {
+				builder.WriteString(line.key)
+				builder.WriteByte('=')
+				builder.WriteString(value)
+				builder.WriteString(lineEnding(line.raw))
+				written[line.key] = true
+				continue
+			}
+		}
 		builder.WriteString(line.raw)
+	}
+	keys := make([]string, 0, len(c.touched))
+	for key := range c.touched {
+		if written[key] || c.deleted[key] {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if builder.Len() > 0 && !strings.HasSuffix(builder.String(), "\n") {
+			builder.WriteByte('\n')
+		}
+		builder.WriteString(key)
+		builder.WriteByte('=')
+		builder.WriteString(c.touched[key])
+		builder.WriteByte('\n')
 	}
 	return []byte(builder.String())
 }

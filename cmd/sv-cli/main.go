@@ -111,6 +111,14 @@ func authShow(configPath string, args []string) error {
 	if err != nil {
 		return err
 	}
+	path := scopeskill.ResolveConfigPath(configPath)
+	configFile, err := scopeskill.ReadConfigFile(path)
+	if err != nil {
+		return err
+	}
+	values := configFile.Values()
+	fmt.Fprintf(cliOutput, "CUSTOMER=%s\n", values[scopeskill.ConfigKeyCustomer])
+	fmt.Fprintf(cliOutput, "SKR=%s\n", values[scopeskill.ConfigKeySKR])
 	fmt.Fprintf(cliOutput, "%s  source=%s\n", redactRESTRefreshToken(token), source)
 	return nil
 }
@@ -185,11 +193,12 @@ func redactRESTRefreshToken(token string) string {
 func authLogin(configPath string, args []string) error {
 	flags := flag.NewFlagSet("auth login", flag.ContinueOnError)
 	force := flags.Bool("force", false, "overwrite an existing REST refresh token")
+	skrFlag := flags.String("skr", "", "bypass the SKR probe with skr03 or skr04")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return fmt.Errorf("usage: sv-cli auth login [--force]")
+		return fmt.Errorf("usage: sv-cli auth login [--force] [--skr=skr03|skr04]")
 	}
 
 	path := scopeskill.ResolveConfigPath(configPath)
@@ -224,6 +233,20 @@ func authLogin(configPath string, args []string) error {
 		return errors.New("token response did not include refresh_token")
 	}
 	if err := configFile.SetAuthLogin(credentials.Customer, token.RefreshToken); err != nil {
+		return err
+	}
+	probeClient := scopeskill.NewClient(scopeskill.Config{
+		BaseURL:     baseConfig.BaseURL,
+		AccessToken: token.AccessToken,
+	})
+	probeCtx := &scopeskill.ProbeContext{
+		Client:  probeClient,
+		Config:  &configFile,
+		Stderr:  cliError,
+		Prompt:  func(message string) (string, error) { return promptLine(message) },
+		SKRFlag: *skrFlag,
+	}
+	if err := scopeskill.RunProbes(scopeskill.DefaultProbes(), probeCtx); err != nil {
 		return err
 	}
 	if err := configFile.Write(); err != nil {

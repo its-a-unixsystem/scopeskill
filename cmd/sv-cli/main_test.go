@@ -42,7 +42,7 @@ func TestAuthHelpListsLogin(t *testing.T) {
 
 func TestAuthShowUsesConfigSource(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config")
-	if err := os.WriteFile(path, []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=config-token-1234\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=config-token-1234\nSKR=skr04\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	output, _ := withCLI(t, "", false)
@@ -50,9 +50,11 @@ func TestAuthShowUsesConfigSource(t *testing.T) {
 	if err := run([]string{"--config", path, "auth", "show"}); err != nil {
 		t.Fatal(err)
 	}
-	got := strings.TrimSpace(output.String())
-	if got != "…1234  source=config" {
-		t.Fatalf("auth show = %q", got)
+	got := output.String()
+	for _, want := range []string{"CUSTOMER=1234567", "SKR=skr04", "…1234  source=config"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("auth show missing %q in %q", want, got)
+		}
 	}
 	if strings.Contains(got, "config-token") {
 		t.Fatalf("auth show leaked token: %q", got)
@@ -70,9 +72,12 @@ func TestAuthShowUsesEnvSourceWhenOverrideIsSet(t *testing.T) {
 	if err := run([]string{"--config", path, "auth", "show"}); err != nil {
 		t.Fatal(err)
 	}
-	got := strings.TrimSpace(output.String())
-	if got != "…abcd  source=env:"+scopeskill.EnvRestRefreshToken {
+	got := output.String()
+	if !strings.Contains(got, "…abcd  source=env:"+scopeskill.EnvRestRefreshToken) {
 		t.Fatalf("auth show = %q", got)
+	}
+	if !strings.Contains(got, "CUSTOMER=1234567") {
+		t.Fatalf("auth show missing CUSTOMER in %q", got)
 	}
 }
 
@@ -233,7 +238,7 @@ func TestAuthLoginWritesConfigAndGetUsesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	output, stderr := withCLI(t, "1234567\ntech@example.com\nsecret-password\n\n", true)
-	if err := run([]string{"--config", path, "auth", "login"}); err != nil {
+	if err := run([]string{"--config", path, "auth", "login", "--skr=skr04"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "scopeskill config written") {
@@ -488,7 +493,7 @@ func TestAuthLoginUsesDefaultConfigPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", configDir)
 	t.Setenv(scopeskill.EnvBaseURL, server.URL)
 	withCLI(t, "1234567\ntech@example.com\nsecret-password\norg-secret-id\n", true)
-	if err := run([]string{"auth", "login"}); err != nil {
+	if err := run([]string{"auth", "login", "--skr=skr04"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -537,7 +542,7 @@ func TestAuthLoginRefusesOverwriteUnlessForced(t *testing.T) {
 	}
 
 	withCLI(t, "1234567\ntech@example.com\nsecret-password\norg-secret-id\n", true)
-	if err := run([]string{"--config", path, "auth", "login", "--force"}); err != nil {
+	if err := run([]string{"--config", path, "auth", "login", "--force", "--skr=skr04"}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err = os.ReadFile(path)
@@ -566,7 +571,7 @@ func TestAuthLoginWarnsWhenEnvRefreshTokenShadowsConfig(t *testing.T) {
 	}
 	t.Setenv(scopeskill.EnvRestRefreshToken, "env-token")
 	_, stderr := withCLI(t, "1234567\ntech@example.com\nsecret-password\norg-secret-id\n", true)
-	if err := run([]string{"--config", path, "auth", "login"}); err != nil {
+	if err := run([]string{"--config", path, "auth", "login", "--skr=skr04"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stderr.String(), scopeskill.EnvRestRefreshToken) || !strings.Contains(stderr.String(), "shadow") {

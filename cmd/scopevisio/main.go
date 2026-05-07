@@ -59,12 +59,12 @@ func run(args []string) error {
 			return err
 		}
 		return download(client, commandArgs[1:])
-	case "teamwork-upload":
+	case "teamwork":
 		client, err := newClient(configPath)
 		if err != nil {
 			return err
 		}
-		return teamworkUpload(client, commandArgs[1:])
+		return teamwork(client, commandArgs[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", commandArgs[0])
 	}
@@ -245,8 +245,21 @@ func download(client *scopevisio.Client, args []string) error {
 	return nil
 }
 
+func teamwork(client *scopevisio.Client, args []string) error {
+	if len(args) == 0 {
+		fmt.Fprintln(cliOutput, "teamwork subcommands: upload")
+		return errors.New("missing teamwork subcommand")
+	}
+	switch args[0] {
+	case "upload":
+		return teamworkUpload(client, args[1:])
+	default:
+		return fmt.Errorf("unknown teamwork command: %s", args[0])
+	}
+}
+
 func teamworkUpload(client *scopevisio.Client, args []string) error {
-	flags := flag.NewFlagSet("teamwork-upload", flag.ContinueOnError)
+	flags := flag.NewFlagSet("teamwork upload", flag.ContinueOnError)
 	metadataArg := flags.String("metadata", "", "JSON metadata, or @path/to/file.json")
 	collections := repeatedFlag{}
 	tags := repeatedFlag{}
@@ -256,7 +269,7 @@ func teamworkUpload(client *scopevisio.Client, args []string) error {
 		return err
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: scopevisio teamwork-upload <file> [--metadata JSON] [--collection ID] [--tag TAG]")
+		return fmt.Errorf("usage: scopevisio teamwork upload <file> [--metadata JSON] [--collection ID] [--tag TAG]")
 	}
 	metadata, err := loadJSONObject(*metadataArg)
 	if err != nil {
@@ -393,7 +406,7 @@ commands:
   get               run an authenticated GET request
   post              run an authenticated POST request
   download          download bytes from an authenticated endpoint
-  teamwork-upload   upload a document through Teamworkbridge`)
+  teamwork          Teamwork-specific operations`)
 	return nil
 }
 

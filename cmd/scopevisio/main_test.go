@@ -74,6 +74,7 @@ func TestAuthLoginWritesConfigAndGetUsesIt(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+	t.Setenv(scopevisio.EnvAccessTokenCache, filepath.Join(t.TempDir(), "access-token.json"))
 
 	path := filepath.Join(t.TempDir(), "scopeskill", "config")
 	raw := strings.Join([]string{
@@ -146,6 +147,47 @@ func TestAuthLoginWritesConfigAndGetUsesIt(t *testing.T) {
 	if myAccountAuth != "Bearer access-from-refresh" {
 		t.Fatalf("Authorization = %q", myAccountAuth)
 	}
+}
+
+func TestGetWritesAccessTokenCacheOverridePath(t *testing.T) {
+	var refreshCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			refreshCount++
+			writeJSONForCLI(w, map[string]any{
+				"token_type":   "Bearer",
+				"access_token": "access-from-refresh",
+				"expires_in":   3600,
+			})
+		case "/rest/myaccount":
+			writeJSONForCLI(w, map[string]any{"ok": true})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config")
+	configRaw := []byte("BASE_URL=" + server.URL + "\nCUSTOMER=1234567\nREST_REFRESH_TOKEN=refresh-token\n")
+	if err := os.WriteFile(configPath, configRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cachePath := filepath.Join(t.TempDir(), "override", "foo.json")
+	t.Setenv(scopevisio.EnvAccessTokenCache, cachePath)
+	withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "get", "/myaccount"}); err != nil {
+		t.Fatal(err)
+	}
+	if refreshCount != 1 {
+		t.Fatalf("refresh count = %d", refreshCount)
+	}
+	if _, err := os.Stat(cachePath); err != nil {
+		t.Fatal(err)
+	}
+	assertMode(t, filepath.Dir(cachePath), 0o700)
+	assertMode(t, cachePath, 0o600)
 }
 
 func TestAuthLoginUsesDefaultConfigPath(t *testing.T) {

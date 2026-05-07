@@ -2,6 +2,7 @@ package scopevisio
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRefreshTokenUsesScopevisioConfigFields(t *testing.T) {
@@ -132,9 +134,10 @@ func TestJSONRequestAddsBearerToken(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{
-		BaseURL:      server.URL,
-		Customer:     "1234567",
-		RefreshToken: "refresh-0",
+		BaseURL:          server.URL,
+		Customer:         "1234567",
+		RefreshToken:     "refresh-0",
+		AccessTokenCache: filepath.Join(t.TempDir(), "access-token.json"),
 	})
 	result, err := client.JSON("POST", "/contacts", map[string]any{"page": 0}, nil)
 	if err != nil {
@@ -179,6 +182,7 @@ func TestJSONRequestUsesScopevisioConfig(t *testing.T) {
 	if err := os.WriteFile(path, []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=config-refresh\nBASE_URL="+server.URL+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv(EnvAccessTokenCache, filepath.Join(t.TempDir(), "access-token.json"))
 	t.Setenv(EnvRestRefreshToken, "")
 	t.Setenv(EnvBaseURL, "")
 	config, err := LoadClientConfig(path)
@@ -198,6 +202,304 @@ func TestJSONRequestUsesScopevisioConfig(t *testing.T) {
 	}
 	if result.(map[string]any)["account"] != "ok" {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestAccessTokenCacheMissAndHit(t *testing.T) {
+	var refreshCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			refreshCount++
+			writeJSON(w, map[string]any{
+				"token_type":   "Bearer",
+				"access_token": "access-from-refresh",
+				"expires_in":   3600,
+			})
+		case "/rest/myaccount":
+			if got := r.Header.Get("Authorization"); got != "Bearer access-from-refresh" {
+				t.Fatalf("Authorization = %q", got)
+			}
+			writeJSON(w, map[string]any{"ok": true})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	cachePath := filepath.Join(t.TempDir(), "cache", "access-token.json")
+	client := NewClient(Config{
+		BaseURL:          server.URL,
+		Customer:         "1234567",
+		RefreshToken:     "refresh-token",
+		AccessTokenCache: cachePath,
+	})
+	if _, err := client.JSON("GET", "/myaccount", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.JSON("GET", "/myaccount", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if refreshCount != 1 {
+		t.Fatalf("refresh count = %d", refreshCount)
+	}
+	assertScopevisioMode(t, filepath.Dir(cachePath), 0o700)
+	assertScopevisioMode(t, cachePath, 0o600)
+}
+
+func TestAccessTokenCacheExpiredMiss(t *testing.T) {
+	var refreshCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/rest/token" {
+			refreshCount++
+			writeJSON(w, map[string]any{
+				"token_type":   "Bearer",
+				"access_token": "fresh-access",
+				"expires_in":   3600,
+			})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	}))
+	defer server.Close()
+
+	cachePath := filepath.Join(t.TempDir(), "access-token.json")
+	writeAccessTokenCache(t, cachePath, "expired-access", time.Now().Add(-time.Hour).Unix())
+	client := NewClient(Config{
+		BaseURL:          server.URL,
+		Customer:         "1234567",
+		RefreshToken:     "refresh-token",
+		AccessTokenCache: cachePath,
+	})
+	if _, err := client.JSON("GET", "/myaccount", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if refreshCount != 1 {
+		t.Fatalf("refresh count = %d", refreshCount)
+	}
+}
+
+func TestDefaultAccessTokenCachePathUsesRefreshTokenFingerprint(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheDir)
+
+	got := DefaultAccessTokenCachePath("refresh-token-a")
+	want := filepath.Join(cacheDir, "scopeskill", "access-token-"+refreshTokenFingerprint("refresh-token-a")+".json")
+	if got != want {
+		t.Fatalf("cache path = %q", got)
+	}
+	if DefaultAccessTokenCachePath("refresh-token-a") == DefaultAccessTokenCachePath("refresh-token-b") {
+		t.Fatal("different REST refresh tokens used the same Access token cache path")
+	}
+}
+
+func TestDifferentRefreshTokensUseDifferentDefaultCacheFiles(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheDir)
+	var refreshTokens []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			refreshToken := r.PostForm.Get("refresh_token")
+			refreshTokens = append(refreshTokens, refreshToken)
+			writeJSON(w, map[string]any{
+				"token_type":   "Bearer",
+				"access_token": "access-for-" + refreshToken,
+				"expires_in":   3600,
+			})
+		case "/rest/myaccount":
+			writeJSON(w, map[string]any{"ok": true})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	firstClient := NewClient(Config{
+		BaseURL:      server.URL,
+		Customer:     "1234567",
+		RefreshToken: "refresh-token-a",
+	})
+	if _, err := firstClient.JSON("GET", "/myaccount", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	firstCachePath := DefaultAccessTokenCachePath("refresh-token-a")
+	firstCacheRaw, err := os.ReadFile(firstCachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secondClient := NewClient(Config{
+		BaseURL:      server.URL,
+		Customer:     "1234567",
+		RefreshToken: "refresh-token-b",
+	})
+	if _, err := secondClient.JSON("GET", "/myaccount", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	secondCachePath := DefaultAccessTokenCachePath("refresh-token-b")
+	if secondCachePath == firstCachePath {
+		t.Fatal("default cache paths matched")
+	}
+	if _, err := os.Stat(secondCachePath); err != nil {
+		t.Fatal(err)
+	}
+	assertFileBytes(t, firstCachePath, firstCacheRaw)
+	if strings.Join(refreshTokens, ",") != "refresh-token-a,refresh-token-b" {
+		t.Fatalf("refresh tokens = %#v", refreshTokens)
+	}
+}
+
+func TestAccessTokenCacheOverridePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "override.json")
+	t.Setenv(EnvAccessTokenCache, path)
+
+	config, err := LoadClientConfig(filepath.Join(t.TempDir(), "missing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.AccessTokenCache != path {
+		t.Fatalf("AccessTokenCache = %q", config.AccessTokenCache)
+	}
+}
+
+func TestRefreshTokenUnauthorizedDeletesCacheAndKeepsConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "invalid refresh token", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config")
+	configRaw := []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=refresh-token\n")
+	if err := os.WriteFile(configPath, configRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cachePath := filepath.Join(dir, "access-token.json")
+	writeAccessTokenCache(t, cachePath, "old-access", time.Now().Add(time.Hour).Unix())
+	client := NewClient(Config{
+		ConfigPath:       configPath,
+		BaseURL:          server.URL,
+		Customer:         "1234567",
+		RefreshToken:     "refresh-token",
+		AccessTokenCache: cachePath,
+	})
+	_, err := client.RefreshToken("refresh-token")
+	if err == nil {
+		t.Fatal("expected auth login error")
+	}
+	var authErr AuthLoginRequiredError
+	if !errors.As(err, &authErr) || !strings.Contains(err.Error(), "auth login") {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	if _, statErr := os.Stat(cachePath); !os.IsNotExist(statErr) {
+		t.Fatalf("cache stat error = %v", statErr)
+	}
+	assertFileBytes(t, configPath, configRaw)
+}
+
+func TestRefreshTokenServerErrorLeavesCacheAndConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "scopevisio unavailable", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config")
+	configRaw := []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=refresh-token\n")
+	if err := os.WriteFile(configPath, configRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cachePath := filepath.Join(dir, "access-token.json")
+	cacheRaw := writeAccessTokenCache(t, cachePath, "old-access", time.Now().Add(time.Hour).Unix())
+	client := NewClient(Config{
+		ConfigPath:       configPath,
+		BaseURL:          server.URL,
+		Customer:         "1234567",
+		RefreshToken:     "refresh-token",
+		AccessTokenCache: cachePath,
+	})
+	_, err := client.RefreshToken("refresh-token")
+	if err == nil {
+		t.Fatal("expected transient refresh error")
+	}
+	var transientErr TransientRefreshError
+	if !errors.As(err, &transientErr) || !strings.Contains(err.Error(), "transient") {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	assertFileBytes(t, cachePath, cacheRaw)
+	assertFileBytes(t, configPath, configRaw)
+}
+
+func TestRefreshTokenNetworkErrorLeavesCacheAndConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	baseURL := server.URL
+	server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config")
+	configRaw := []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=refresh-token\n")
+	if err := os.WriteFile(configPath, configRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cachePath := filepath.Join(dir, "access-token.json")
+	cacheRaw := writeAccessTokenCache(t, cachePath, "old-access", time.Now().Add(time.Hour).Unix())
+	client := NewClient(Config{
+		ConfigPath:       configPath,
+		BaseURL:          baseURL,
+		Customer:         "1234567",
+		RefreshToken:     "refresh-token",
+		AccessTokenCache: cachePath,
+	})
+	_, err := client.RefreshToken("refresh-token")
+	if err == nil {
+		t.Fatal("expected transient refresh error")
+	}
+	var transientErr TransientRefreshError
+	if !errors.As(err, &transientErr) {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	assertFileBytes(t, cachePath, cacheRaw)
+	assertFileBytes(t, configPath, configRaw)
+}
+
+func TestFreshAccessTokenUnauthorizedDeletesCache(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			writeJSON(w, map[string]any{
+				"token_type":   "Bearer",
+				"access_token": "fresh-access",
+				"expires_in":   3600,
+			})
+		case "/rest/myaccount":
+			http.Error(w, "access denied", http.StatusUnauthorized)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	cachePath := filepath.Join(t.TempDir(), "access-token.json")
+	client := NewClient(Config{
+		BaseURL:          server.URL,
+		Customer:         "1234567",
+		RefreshToken:     "refresh-token",
+		AccessTokenCache: cachePath,
+	})
+	_, err := client.JSON("GET", "/myaccount", nil, nil)
+	if err == nil {
+		t.Fatal("expected auth login error")
+	}
+	var authErr AuthLoginRequiredError
+	if !errors.As(err, &authErr) || !strings.Contains(err.Error(), "auth login") {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	if _, statErr := os.Stat(cachePath); !os.IsNotExist(statErr) {
+		t.Fatalf("cache stat error = %v", statErr)
 	}
 }
 
@@ -279,4 +581,45 @@ func TestTeamworkUploadUsesMultipartMetadataAndDocumentParts(t *testing.T) {
 func writeJSON(w http.ResponseWriter, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeAccessTokenCache(t *testing.T, path string, accessToken string, expiresAt int64) []byte {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.MarshalIndent(accessTokenCache{
+		TokenType:   "Bearer",
+		AccessToken: accessToken,
+		ExpiresAt:   expiresAt,
+	}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func assertFileBytes(t *testing.T, path string, want []byte) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("%s = %s, want %s", path, string(got), string(want))
+	}
+}
+
+func assertScopevisioMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode = %o", path, got)
+	}
 }

@@ -24,7 +24,7 @@ One-time interactive setup:
 sv-cli auth login
 ```
 
-`auth login` prompts on a TTY for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID, exchanges them for tokens, and writes `CUSTOMER` plus `REST_REFRESH_TOKEN` to the active Scopevisio config. It does not store the username, password, or organisation ID.
+`auth login` prompts on a TTY for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID. Password input is masked with `*`. It exchanges those inputs for tokens and writes `CUSTOMER` plus `REST_REFRESH_TOKEN` to the active Scopevisio config. It does not store the username, password, or organisation ID.
 
 Inspect or manage the configured REST refresh token:
 

@@ -17,7 +17,7 @@ The Swagger UI is backed by:
 - `references/auth.md`: token and login workflow.
 - `references/bookkeeping.md`: Scopevisio bookkeeping object map and API guardrails.
 - `references/teamworkbridge.md`: Teamwork/CenterDevice access, upload, and download workflow.
-- `cmd/scopevisio/`: small dependency-free Go helper CLI. Build it as `sv-cli`.
+- `cmd/scopevisio/`: small Go helper CLI. Build it as `sv-cli`.
 
 ## Setup
 
@@ -35,7 +35,7 @@ Run one-time interactive login:
 ./bin/sv-cli auth login
 ```
 
-`auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active Scopevisio config. It never stores the initial username, password, or organisation ID.
+`auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active Scopevisio config. It never stores the initial username, password, or organisation ID.
 
 Check authentication:
 

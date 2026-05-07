@@ -244,6 +244,12 @@ func TestAuthLoginWritesConfigAndGetUsesIt(t *testing.T) {
 			t.Fatalf("stderr missing prompt %q in %q", prompt, stderr.String())
 		}
 	}
+	if strings.Contains(stderr.String(), "secret-password") {
+		t.Fatalf("stderr leaked password: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Passwort: ***************") {
+		t.Fatalf("stderr missing masked password in %q", stderr.String())
+	}
 	for key, want := range map[string]string{
 		"grant_type": "password",
 		"customer":   "1234567",

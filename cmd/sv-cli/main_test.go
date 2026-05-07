@@ -12,15 +12,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/its-a-unixsystem/scopeskill/internal/scopevisio"
+	"github.com/its-a-unixsystem/scopeskill/internal/scopeskill"
 )
 
 func TestParseGlobalFlagsConfig(t *testing.T) {
-	configPath, args, err := parseGlobalFlags([]string{"--config", "/tmp/scopevisio.env", "get", "/myaccount"})
+	configPath, args, err := parseGlobalFlags([]string{"--config", "/tmp/scopeskill.env", "get", "/myaccount"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if configPath != "/tmp/scopevisio.env" {
+	if configPath != "/tmp/scopeskill.env" {
 		t.Fatalf("config path = %q", configPath)
 	}
 	if len(args) != 2 || args[0] != "get" || args[1] != "/myaccount" {
@@ -64,14 +64,14 @@ func TestAuthShowUsesEnvSourceWhenOverrideIsSet(t *testing.T) {
 	if err := os.WriteFile(path, []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=config-token-1234\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(scopevisio.EnvRestRefreshToken, "env-token-abcd")
+	t.Setenv(scopeskill.EnvRestRefreshToken, "env-token-abcd")
 	output, _ := withCLI(t, "", false)
 
 	if err := run([]string{"--config", path, "auth", "show"}); err != nil {
 		t.Fatal(err)
 	}
 	got := strings.TrimSpace(output.String())
-	if got != "…abcd  source=env:"+scopevisio.EnvRestRefreshToken {
+	if got != "…abcd  source=env:"+scopeskill.EnvRestRefreshToken {
 		t.Fatalf("auth show = %q", got)
 	}
 }
@@ -98,7 +98,7 @@ func TestAuthDeletePreservesConfigAndWarnsForEnvOverride(t *testing.T) {
 		"# keep this comment",
 		"CUSTOMER=1234567",
 		"REST_REFRESH_TOKEN=old-token",
-		"BASE_URL=https://scopevisio.example",
+		"BASE_URL=https://scopeskill.example",
 		"UNKNOWN=survives",
 		"REST_REFRESH_TOKEN=newer-token",
 		"",
@@ -106,19 +106,19 @@ func TestAuthDeletePreservesConfigAndWarnsForEnvOverride(t *testing.T) {
 	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(scopevisio.EnvRestRefreshToken, "env-token")
+	t.Setenv(scopeskill.EnvRestRefreshToken, "env-token")
 	_, stderr := withCLI(t, "", false)
 
 	if err := run([]string{"--config", path, "auth", "delete"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stderr.String(), scopevisio.EnvRestRefreshToken) || !strings.Contains(stderr.String(), "not affect the next call") {
+	if !strings.Contains(stderr.String(), scopeskill.EnvRestRefreshToken) || !strings.Contains(stderr.String(), "not affect the next call") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	want := strings.Join([]string{
 		"# keep this comment",
 		"CUSTOMER=1234567",
-		"BASE_URL=https://scopevisio.example",
+		"BASE_URL=https://scopeskill.example",
 		"UNKNOWN=survives",
 		"",
 	}, "\n")
@@ -158,13 +158,13 @@ func TestRedactRESTRefreshTokenUsesFixedMaskAndLastFour(t *testing.T) {
 
 func TestAuthDeleteNoopsWhenOnlyEnvTokenExists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing")
-	t.Setenv(scopevisio.EnvRestRefreshToken, "env-token")
+	t.Setenv(scopeskill.EnvRestRefreshToken, "env-token")
 	_, stderr := withCLI(t, "", false)
 
 	if err := run([]string{"--config", path, "auth", "delete"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stderr.String(), scopevisio.EnvRestRefreshToken) {
+	if !strings.Contains(stderr.String(), scopeskill.EnvRestRefreshToken) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -217,7 +217,7 @@ func TestAuthLoginWritesConfigAndGetUsesIt(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv(scopevisio.EnvAccessTokenCache, filepath.Join(t.TempDir(), "access-token.json"))
+	t.Setenv(scopeskill.EnvAccessTokenCache, filepath.Join(t.TempDir(), "access-token.json"))
 
 	path := filepath.Join(t.TempDir(), "scopeskill", "config")
 	raw := strings.Join([]string{
@@ -236,7 +236,7 @@ func TestAuthLoginWritesConfigAndGetUsesIt(t *testing.T) {
 	if err := run([]string{"--config", path, "auth", "login"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "Scopevisio config written") {
+	if !strings.Contains(output.String(), "scopeskill config written") {
 		t.Fatalf("output = %q", output.String())
 	}
 	for _, prompt := range []string{"Kundennummer:", "Benutzername:", "Passwort:", "Organisations-ID (optional):"} {
@@ -270,7 +270,7 @@ func TestAuthLoginWritesConfigAndGetUsesIt(t *testing.T) {
 	}
 	configText := string(configRaw)
 	for _, want := range []string{
-		scopevisio.AuthLoginConfigHeader,
+		scopeskill.AuthLoginConfigHeader,
 		"CUSTOMER=1234567",
 		"REST_REFRESH_TOKEN=refresh-from-login",
 		"# keep this comment",
@@ -325,7 +325,7 @@ func TestGetWritesAccessTokenCacheOverridePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	cachePath := filepath.Join(t.TempDir(), "override", "foo.json")
-	t.Setenv(scopevisio.EnvAccessTokenCache, cachePath)
+	t.Setenv(scopeskill.EnvAccessTokenCache, cachePath)
 	withCLI(t, "", false)
 
 	if err := run([]string{"--config", configPath, "get", "/myaccount"}); err != nil {
@@ -366,7 +366,7 @@ func TestDownloadWritesGenericBinaryResponse(t *testing.T) {
 	if err := os.WriteFile(configPath, configRaw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(scopevisio.EnvAccessTokenCache, filepath.Join(t.TempDir(), "access-token.json"))
+	t.Setenv(scopeskill.EnvAccessTokenCache, filepath.Join(t.TempDir(), "access-token.json"))
 	outPath := filepath.Join(t.TempDir(), "doc.bin")
 	output, _ := withCLI(t, "", false)
 
@@ -418,14 +418,14 @@ func TestTeamworkUploadCommandBuildsMultipartRequest(t *testing.T) {
 	if err := os.WriteFile(configPath, configRaw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(scopevisio.EnvAccessTokenCache, filepath.Join(t.TempDir(), "access-token.json"))
+	t.Setenv(scopeskill.EnvAccessTokenCache, filepath.Join(t.TempDir(), "access-token.json"))
 	localFilePath := filepath.Join(t.TempDir(), "invoice.pdf")
 	if err := os.WriteFile(localFilePath, []byte("invoice"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	output, _ := withCLI(t, "", false)
 
-	if err := run([]string{"--config", configPath, "teamwork", "upload", localFilePath, "--collection", "collection-1", "--tag", "scopevisio-test"}); err != nil {
+	if err := run([]string{"--config", configPath, "teamwork", "upload", localFilePath, "--collection", "collection-1", "--tag", "scopeskill-test"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), `"id": "doc-1"`) {
@@ -440,7 +440,7 @@ func TestTeamworkUploadCommandBuildsMultipartRequest(t *testing.T) {
 		`"filename":"invoice.pdf"`,
 		`"size":7`,
 		`"add-to-collection":["collection-1"]`,
-		`"add-tag":["scopevisio-test"]`,
+		`"add-tag":["scopeskill-test"]`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("multipart body missing %q in %s", want, body)
@@ -450,7 +450,7 @@ func TestTeamworkUploadCommandBuildsMultipartRequest(t *testing.T) {
 
 func TestTeamworkWithoutSubcommandPrintsHelpAndFails(t *testing.T) {
 	output, _ := withCLI(t, "", false)
-	client := scopevisio.NewClient(scopevisio.Config{AccessToken: "access-token"})
+	client := scopeskill.NewClient(scopeskill.Config{AccessToken: "access-token"})
 
 	err := teamwork(client, nil)
 	if err == nil {
@@ -486,7 +486,7 @@ func TestAuthLoginUsesDefaultConfigPath(t *testing.T) {
 
 	configDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configDir)
-	t.Setenv(scopevisio.EnvBaseURL, server.URL)
+	t.Setenv(scopeskill.EnvBaseURL, server.URL)
 	withCLI(t, "1234567\ntech@example.com\nsecret-password\norg-secret-id\n", true)
 	if err := run([]string{"auth", "login"}); err != nil {
 		t.Fatal(err)
@@ -564,12 +564,12 @@ func TestAuthLoginWarnsWhenEnvRefreshTokenShadowsConfig(t *testing.T) {
 	if err := os.WriteFile(path, []byte("BASE_URL="+server.URL+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(scopevisio.EnvRestRefreshToken, "env-token")
+	t.Setenv(scopeskill.EnvRestRefreshToken, "env-token")
 	_, stderr := withCLI(t, "1234567\ntech@example.com\nsecret-password\norg-secret-id\n", true)
 	if err := run([]string{"--config", path, "auth", "login"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stderr.String(), scopevisio.EnvRestRefreshToken) || !strings.Contains(stderr.String(), "shadow") {
+	if !strings.Contains(stderr.String(), scopeskill.EnvRestRefreshToken) || !strings.Contains(stderr.String(), "shadow") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

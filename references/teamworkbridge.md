@@ -49,7 +49,7 @@ Upload a new document with multipart form data:
 ```bash
 sv-cli teamwork upload ./invoice.pdf \
   --collection <collection-id> \
-  --tag scopevisio-test
+  --tag scopeskill-test
 ```
 
 Equivalent metadata shape:
@@ -65,7 +65,7 @@ Equivalent metadata shape:
     },
     "actions": {
       "add-to-collection": ["collection-id"],
-      "add-tag": ["scopevisio-test"]
+      "add-tag": ["scopeskill-test"]
     },
     "extended-metadata": {}
   }

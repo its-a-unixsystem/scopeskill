@@ -1,4 +1,4 @@
-# Scopevisio Skill
+# scopeskill
 
 Codex skill plus helper client for Scopevisio automation.
 
@@ -17,7 +17,8 @@ The Swagger UI is backed by:
 - `references/auth.md`: token and login workflow.
 - `references/bookkeeping.md`: Scopevisio bookkeeping object map and API guardrails.
 - `references/teamworkbridge.md`: Teamwork/CenterDevice access, upload, and download workflow.
-- `cmd/scopevisio/`: small Go helper CLI. Build it as `sv-cli`.
+- `cmd/sv-cli/`: small Go helper CLI. Build it as `sv-cli`.
+- `internal/scopeskill/`: helper client and config package used by `sv-cli`.
 
 ## Setup
 
@@ -26,7 +27,7 @@ Create a technical user in Scopevisio and give it the required licences and righ
 Build locally:
 
 ```bash
-go build -o ./bin/sv-cli ./cmd/scopevisio
+go build -o ./bin/sv-cli ./cmd/sv-cli
 ```
 
 Run one-time interactive login:
@@ -35,7 +36,7 @@ Run one-time interactive login:
 ./bin/sv-cli auth login
 ```
 
-`auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active Scopevisio config. It never stores the initial username, password, or organisation ID.
+`auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active scopeskill config. It never stores the initial username, password, or organisation ID.
 
 Check authentication:
 
@@ -59,7 +60,7 @@ Search contacts:
 
 ## Configuration
 
-The Scopevisio config is an env-file. By default, `sv-cli` uses the user config directory; pass `--config <path>` or set `SCOPESKILL_CONFIG` to use a different file.
+The scopeskill config is an env-file. By default, `sv-cli` uses the user config directory; pass `--config <path>` or set `SCOPESKILL_CONFIG` to use a different file.
 
 Durable config keys:
 
@@ -99,7 +100,7 @@ Upload a document:
 ```bash
 ./bin/sv-cli teamwork upload ./invoice.pdf \
   --collection <collection-id> \
-  --tag scopevisio-test
+  --tag scopeskill-test
 ```
 
 The current implementation keeps generic `get`, `post`, and `download` commands, plus grouped `teamwork upload` for multipart document upload. Folder and collection reads remain generic JSON calls until live Teamworkbridge tests prove a specialized command is useful.

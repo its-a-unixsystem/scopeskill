@@ -1,4 +1,4 @@
-package scopevisio
+package scopeskill
 
 import (
 	"bytes"
@@ -69,7 +69,7 @@ type APIError struct {
 }
 
 func (e APIError) Error() string {
-	return fmt.Sprintf("scopevisio returned HTTP %d: %s", e.StatusCode, e.Body)
+	return fmt.Sprintf("REST API returned HTTP %d: %s", e.StatusCode, e.Body)
 }
 
 type AuthLoginRequiredError struct {
@@ -85,7 +85,7 @@ type TransientRefreshError struct {
 }
 
 func (e TransientRefreshError) Error() string {
-	return fmt.Sprintf("transient Scopevisio refresh-token exchange failure; try again later: %v", e.Err)
+	return fmt.Sprintf("transient REST refresh-token exchange failure; try again later: %v", e.Err)
 }
 
 func NewClient(cfg Config) *Client {
@@ -112,7 +112,7 @@ func (c *Client) getToken() (Token, bool, error) {
 		}, false, nil
 	}
 	if c.Config.RefreshToken == "" {
-		return Token{}, false, errors.New("missing REST refresh token; run sv-cli auth login or set REST_REFRESH_TOKEN in the Scopevisio config")
+		return Token{}, false, errors.New("missing REST refresh token; run sv-cli auth login or set REST_REFRESH_TOKEN in the scopeskill config")
 	}
 	if token, err := c.loadAccessTokenCache(); err == nil && !token.Expired() {
 		return token, false, nil
@@ -129,7 +129,7 @@ func (c *Client) getToken() (Token, bool, error) {
 
 func (c *Client) RefreshToken(refreshToken string) (Token, error) {
 	if c.Config.Customer == "" {
-		return Token{}, errors.New("missing CUSTOMER in Scopevisio config; refresh-token exchange requires CUSTOMER with REST_REFRESH_TOKEN")
+		return Token{}, errors.New("missing CUSTOMER in scopeskill config; refresh-token exchange requires CUSTOMER with REST_REFRESH_TOKEN")
 	}
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")

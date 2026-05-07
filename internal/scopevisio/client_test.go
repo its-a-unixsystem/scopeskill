@@ -12,10 +12,10 @@ import (
 	"testing"
 )
 
-func TestPasswordTokenUsesScopevisioFields(t *testing.T) {
+func TestRefreshTokenUsesScopevisioConfigFields(t *testing.T) {
 	var form url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/token" {
+		if r.URL.Path != "/rest/token" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		if err := r.ParseForm(); err != nil {
@@ -35,28 +35,24 @@ func TestPasswordTokenUsesScopevisioFields(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{
-		BaseURL:      server.URL,
-		Customer:     "1234567",
-		Organisation: "Example GmbH",
-		Username:     "tech@example.com",
-		Password:     "secret",
-		TokenCache:   filepath.Join(t.TempDir(), "token.json"),
+		BaseURL:  server.URL,
+		Customer: "1234567",
 	})
-	token, err := client.PasswordToken("")
+	token, err := client.RefreshToken("refresh-0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if token.AccessToken != "access-1" {
 		t.Fatalf("access token = %q", token.AccessToken)
 	}
-	if form.Get("grant_type") != "password" {
+	if form.Get("grant_type") != "refresh_token" {
 		t.Fatalf("grant_type = %q", form.Get("grant_type"))
 	}
 	if form.Get("customer") != "1234567" {
 		t.Fatalf("customer = %q", form.Get("customer"))
 	}
-	if form.Get("organisation") != "Example GmbH" {
-		t.Fatalf("organisation = %q", form.Get("organisation"))
+	if form.Get("refresh_token") != "refresh-0" {
+		t.Fatalf("refresh_token = %q", form.Get("refresh_token"))
 	}
 }
 
@@ -64,7 +60,13 @@ func TestJSONRequestAddsBearerToken(t *testing.T) {
 	var auth string
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/token" {
+		if r.URL.Path == "/rest/token" {
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			if r.PostForm.Get("grant_type") != "refresh_token" {
+				t.Fatalf("grant_type = %q", r.PostForm.Get("grant_type"))
+			}
 			writeJSON(w, map[string]any{
 				"token_type":    "Bearer",
 				"access_token":  "access-1",
@@ -72,6 +74,9 @@ func TestJSONRequestAddsBearerToken(t *testing.T) {
 				"expires_in":    3600,
 			})
 			return
+		}
+		if r.URL.Path != "/rest/contacts" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		auth = r.Header.Get("Authorization")
 		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
@@ -82,11 +87,9 @@ func TestJSONRequestAddsBearerToken(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{
-		BaseURL:    server.URL,
-		Customer:   "1234567",
-		Username:   "tech@example.com",
-		Password:   "secret",
-		TokenCache: filepath.Join(t.TempDir(), "token.json"),
+		BaseURL:      server.URL,
+		Customer:     "1234567",
+		RefreshToken: "refresh-0",
 	})
 	result, err := client.JSON("POST", "/contacts", map[string]any{"page": 0}, nil)
 	if err != nil {
@@ -103,8 +106,61 @@ func TestJSONRequestAddsBearerToken(t *testing.T) {
 	}
 }
 
+func TestJSONRequestUsesScopevisioConfig(t *testing.T) {
+	var auth string
+	var tokenForm url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			tokenForm = r.PostForm
+			writeJSON(w, map[string]any{
+				"token_type":   "Bearer",
+				"access_token": "access-from-config",
+				"expires_in":   3600,
+			})
+		case "/rest/myaccount":
+			auth = r.Header.Get("Authorization")
+			writeJSON(w, map[string]any{"account": "ok"})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte("CUSTOMER=1234567\nREST_REFRESH_TOKEN=config-refresh\nBASE_URL="+server.URL+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvRestRefreshToken, "")
+	t.Setenv(EnvBaseURL, "")
+	config, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(config)
+	result, err := client.JSON("GET", "/myaccount", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokenForm.Get("refresh_token") != "config-refresh" {
+		t.Fatalf("refresh_token = %q", tokenForm.Get("refresh_token"))
+	}
+	if auth != "Bearer access-from-config" {
+		t.Fatalf("Authorization = %q", auth)
+	}
+	if result.(map[string]any)["account"] != "ok" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestDownloadWritesBinaryResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/teamworkbridge/document/doc-1" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
 		if got := r.Header.Get("Authorization"); got != "Bearer access-1" {
 			t.Fatalf("Authorization = %q", got)
 		}
@@ -133,7 +189,7 @@ func TestTeamworkUploadUsesMultipartMetadataAndDocumentParts(t *testing.T) {
 	var contentType string
 	var body string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/teamworkbridge/documents" {
+		if r.URL.Path != "/rest/teamworkbridge/documents" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		contentType = r.Header.Get("Content-Type")

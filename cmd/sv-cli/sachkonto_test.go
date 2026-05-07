@@ -6,13 +6,24 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/its-a-unixsystem/scopeskill/internal/scopeskill"
 )
+
+// fixedNow installs a deterministic nowFunc for the test and reverts on
+// cleanup.
+func fixedNow(t *testing.T, ts time.Time) {
+	t.Helper()
+	old := nowFunc
+	nowFunc = func() time.Time { return ts }
+	t.Cleanup(func() { nowFunc = old })
+}
 
 type sachkontoStub struct {
 	server   *httptest.Server
@@ -248,7 +259,207 @@ func TestSachkontoWithoutSubcommandPrintsHelpAndFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing sachkonto subcommand error")
 	}
-	if !strings.Contains(output.String(), "search") {
-		t.Fatalf("output = %q", output.String())
+	for _, want := range []string{"search", "show", "balance"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output = %q (missing %q)", output.String(), want)
+		}
+	}
+}
+
+// showStub canned a Mandant with two fiscal years (2025, 2026) and a single
+// Sachkonto 4400. Used by show + balance tests.
+type showStub struct {
+	server         *httptest.Server
+	searchBodies   []map[string]any
+	susaQueries    []url.Values
+	fiscalYearHits int
+	kontoRecords   []any
+	susaResponse   func(query url.Values) any
+}
+
+func newShowStub(t *testing.T) *showStub {
+	t.Helper()
+	stub := &showStub{
+		kontoRecords: []any{
+			map[string]any{"id": 1.0, "number": "4400", "name": "Erlöse 19% / 16% USt", "active": true, "accountTypeName": "Erlöse"},
+		},
+	}
+	stub.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			writeJSONForCLI(w, map[string]any{
+				"token_type":   "Bearer",
+				"access_token": "access-from-refresh",
+				"expires_in":   3600,
+			})
+		case "/rest/impersonalaccounts":
+			raw, _ := io.ReadAll(r.Body)
+			var body map[string]any
+			_ = json.Unmarshal(raw, &body)
+			stub.searchBodies = append(stub.searchBodies, body)
+			writeJSONForCLI(w, stub.kontoRecords)
+		case "/rest/fiscalyears":
+			stub.fiscalYearHits++
+			writeJSONForCLI(w, map[string]any{
+				"years": []any{
+					map[string]any{"id": 56, "name": "Eröffnungsbilanz", "beginning": "2024-12-31T00:00:00.000Z+0100", "open": true},
+					map[string]any{"id": 45, "name": "2025", "beginning": "2025-01-01T00:00:00.000Z+0100", "open": true},
+					map[string]any{"id": 58, "name": "2026", "beginning": "2026-01-01T00:00:00.000Z+0100", "open": true},
+				},
+			})
+		case "/rest/datasource/susa/impersonalAccounts":
+			stub.susaQueries = append(stub.susaQueries, r.URL.Query())
+			if stub.susaResponse != nil {
+				writeJSONForCLI(w, stub.susaResponse(r.URL.Query()))
+				return
+			}
+			writeJSONForCLI(w, map[string]any{"records": []any{
+				map[string]any{
+					"Kontonummer":     "4400",
+					"Kontoname":       "Erlöse 19% / 16% USt",
+					"Saldenvortrag":   "0,00",
+					"Saldo":           "42,00",
+					"Saldo-Kumuliert": "42,00",
+					"Soll":            "0,00",
+					"Haben":           "42,00",
+				},
+			}})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(stub.server.Close)
+	return stub
+}
+
+func TestSachkontoShowReturnsStitchedKontoAndSaldo(t *testing.T) {
+	stub := newShowStub(t)
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	fixedNow(t, time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC))
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "sachkonto", "show", "4400"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	konto := got["konto"].(map[string]any)
+	if konto["number"] != "4400" {
+		t.Fatalf("konto = %#v", konto)
+	}
+	saldo := got["saldo"].(map[string]any)
+	if _, ok := saldo["current"]; !ok {
+		t.Fatalf("saldo missing current: %#v", saldo)
+	}
+	if _, ok := saldo["fiscalYearToDate"]; !ok {
+		t.Fatalf("saldo missing fiscalYearToDate: %#v", saldo)
+	}
+	if stub.fiscalYearHits != 1 {
+		t.Fatalf("fiscalyears hits = %d", stub.fiscalYearHits)
+	}
+	if len(stub.susaQueries) != 2 {
+		t.Fatalf("expected 2 SuSa calls, got %d", len(stub.susaQueries))
+	}
+	if stub.susaQueries[0].Get("startDate") != "31.12.2024" || stub.susaQueries[0].Get("endDate") != "07.05.2026" {
+		t.Fatalf("current susa query = %v", stub.susaQueries[0])
+	}
+	if stub.susaQueries[1].Get("startDate") != "01.01.2026" || stub.susaQueries[1].Get("endDate") != "07.05.2026" {
+		t.Fatalf("fyToDate susa query = %v", stub.susaQueries[1])
+	}
+	search := stub.searchBodies[0]["search"].([]any)
+	cond := search[0].(map[string]any)
+	if cond["field"] != "number" || cond["operator"] != "equals" || cond["value"] != "4400" {
+		t.Fatalf("konto search condition = %#v", cond)
+	}
+}
+
+func TestSachkontoShowReturnsNotFoundForUnknownNumber(t *testing.T) {
+	stub := newShowStub(t)
+	stub.kontoRecords = []any{}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	fixedNow(t, time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC))
+	withCLI(t, "", false)
+
+	err := run([]string{"--config", configPath, "sachkonto", "show", "9999"})
+	if err == nil || !strings.Contains(err.Error(), "not found or authorization missing") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSachkontoBalanceWithExplicitDates(t *testing.T) {
+	stub := newShowStub(t)
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	fixedNow(t, time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC))
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "sachkonto", "balance", "4400", "--from=2025-01-01", "--to=2025-12-31"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if stub.fiscalYearHits != 0 {
+		t.Fatalf("fiscalyears should not be queried with explicit dates: hits = %d", stub.fiscalYearHits)
+	}
+	if len(stub.susaQueries) != 1 {
+		t.Fatalf("expected 1 SuSa call, got %d", len(stub.susaQueries))
+	}
+	if stub.susaQueries[0].Get("startDate") != "01.01.2025" || stub.susaQueries[0].Get("endDate") != "31.12.2025" {
+		t.Fatalf("susa query = %v", stub.susaQueries[0])
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	if got["Kontonummer"] != "4400" {
+		t.Fatalf("got = %#v", got)
+	}
+}
+
+func TestSachkontoBalanceDefaultsToCurrentFiscalYear(t *testing.T) {
+	stub := newShowStub(t)
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	fixedNow(t, time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC))
+	withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "sachkonto", "balance", "4400"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if stub.fiscalYearHits != 1 {
+		t.Fatalf("fiscalyears hits = %d", stub.fiscalYearHits)
+	}
+	if len(stub.susaQueries) != 1 {
+		t.Fatalf("susa calls = %d", len(stub.susaQueries))
+	}
+	if stub.susaQueries[0].Get("startDate") != "01.01.2026" || stub.susaQueries[0].Get("endDate") != "07.05.2026" {
+		t.Fatalf("susa query = %v", stub.susaQueries[0])
+	}
+}
+
+func TestSachkontoBalanceReturnsNotFoundWhenAccountAbsent(t *testing.T) {
+	stub := newShowStub(t)
+	stub.susaResponse = func(_ url.Values) any {
+		return map[string]any{"records": []any{}}
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	fixedNow(t, time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC))
+	withCLI(t, "", false)
+
+	err := run([]string{"--config", configPath, "sachkonto", "balance", "4400"})
+	if err == nil || !strings.Contains(err.Error(), "not found or authorization missing") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSachkontoBalanceRejectsInvalidDateFormat(t *testing.T) {
+	stub := newShowStub(t)
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	withCLI(t, "", false)
+	err := run([]string{"--config", configPath, "sachkonto", "balance", "4400", "--from=01.01.2025"})
+	if err == nil || !strings.Contains(err.Error(), "--from") {
+		t.Fatalf("err = %v", err)
 	}
 }

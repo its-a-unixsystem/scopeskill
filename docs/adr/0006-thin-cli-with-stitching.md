@@ -1,0 +1,5 @@
+# `sv-cli` is thin, with stitching for co-requested data
+
+The **`sv-cli`** is a thin interface for agents — no business decisions, no derivations, no implicit filtering of results — but each `show` command stitches data that a realistic caller would otherwise fetch in a follow-up call into one response, so a single conceptual lookup costs a single tool call. Concretely: `debitor show` returns `{debitor, kontakt, saldo}`, `offene-posten show` returns `{op, beleg, kontakt}`, `buchung show` returns `{buchung, beleg}`, `*konto show` returns `{konto, saldo}`. Stitching applies only when the second piece would be requested in nearly every realistic call (the 80% rule); list-side responses do not stitch (N+1 risk), and the CLI never computes business answers like overdue buckets or dunning candidates.
+
+Response shape is nested-by-source so collisions between source objects are impossible (a Debitor and a Kontakt can both have a `name` field), the agent always knows which object owns each field, and additional sources can be added later without breaking existing keys.

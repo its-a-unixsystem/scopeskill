@@ -16,16 +16,16 @@ jobs:
         include:
           - goos: darwin
             goarch: arm64
-            name: scopevisio-darwin-arm64
+            name: sv-cli-darwin-arm64
           - goos: darwin
             goarch: amd64
-            name: scopevisio-darwin-amd64
+            name: sv-cli-darwin-amd64
           - goos: linux
             goarch: amd64
-            name: scopevisio-linux-amd64
+            name: sv-cli-linux-amd64
           - goos: windows
             goarch: amd64
-            name: scopevisio-windows-amd64.exe
+            name: sv-cli-windows-amd64.exe
 
     steps:
       - uses: actions/checkout@v4

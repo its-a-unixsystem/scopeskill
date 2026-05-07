@@ -17,37 +17,37 @@ The Swagger UI is backed by:
 - `references/auth.md`: token and login workflow.
 - `references/bookkeeping.md`: Scopevisio bookkeeping object map and API guardrails.
 - `references/teamworkbridge.md`: Teamwork/CenterDevice access, upload, and download workflow.
-- `cmd/scopevisio/`: small dependency-free Go helper CLI.
+- `cmd/scopevisio/`: small dependency-free Go helper CLI. Build it as `sv-cli`.
 
 ## Setup
 
-Create a technical user in Scopevisio, give it the required licences and rights,
-then configure credentials through environment variables:
-
-```bash
-cp .env.example .env
-set -a
-. ./.env
-set +a
-```
+Create a technical user in Scopevisio and give it the required licences and rights.
 
 Build locally:
 
 ```bash
-go build -o ./bin/scopevisio ./cmd/scopevisio
+go build -o ./bin/sv-cli ./cmd/scopevisio
 ```
+
+Run one-time interactive login:
+
+```bash
+./bin/sv-cli auth login
+```
+
+`auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active Scopevisio config. It never stores the initial username, password, or organisation ID.
 
 Check authentication:
 
 ```bash
-./bin/scopevisio auth
-./bin/scopevisio get /myaccount
+./bin/sv-cli auth show
+./bin/sv-cli get /myaccount
 ```
 
 Search contacts:
 
 ```bash
-./bin/scopevisio post /contacts --data '{
+./bin/sv-cli post /contacts --data '{
   "page": 0,
   "pageSize": 25,
   "fields": ["id", "firstname", "lastname", "email"],
@@ -57,12 +57,33 @@ Search contacts:
 }'
 ```
 
+## Configuration
+
+The Scopevisio config is an env-file. By default, `sv-cli` uses the user config directory; pass `--config <path>` or set `SCOPESKILL_CONFIG` to use a different file.
+
+Durable config keys:
+
+- `CUSTOMER`: the Scopevisio customer number paired with the refresh token.
+- `REST_REFRESH_TOKEN`: durable credential used to obtain REST access tokens.
+- `BASE_URL`: optional Scopevisio REST base URL override.
+
+Supported one-process environment overrides:
+
+- `SCOPESKILL_CONFIG`
+- `SCOPESKILL_REST_REFRESH_TOKEN`
+- `SCOPESKILL_BASE_URL`
+- `SCOPESKILL_ACCESS_TOKEN_CACHE`
+
+`SCOPESKILL_CUSTOMER` is intentionally not supported. Switch identity with `--config` or `SCOPESKILL_CONFIG` so `CUSTOMER` and `REST_REFRESH_TOKEN` stay paired. The bearer header is always `Authorization`; there is no `AUTH_HEADER` config key or auth-header environment override.
+
+REST access tokens are short-lived request credentials. `sv-cli` stores them in a separate disposable access-token cache, keyed by refresh-token fingerprint. REST refresh tokens are durable config credentials. Deleting the access-token cache does not remove setup; deleting `REST_REFRESH_TOKEN` from config does.
+
 ## Teamworkbridge Smoke Test
 
 List top-level folders for a collection:
 
 ```bash
-./bin/scopevisio get /teamworkbridge/folders \
+./bin/sv-cli get /teamworkbridge/folders \
   --query parent=none \
   --query collection=<collection-id>
 ```
@@ -70,56 +91,29 @@ List top-level folders for a collection:
 Download a document:
 
 ```bash
-./bin/scopevisio download /teamworkbridge/document/<document-id> --out ./document.bin
+./bin/sv-cli download /teamworkbridge/document/<document-id> --out ./document.bin
 ```
 
 Upload a document:
 
 ```bash
-./bin/scopevisio teamwork-upload ./invoice.pdf \
+./bin/sv-cli teamwork upload ./invoice.pdf \
   --collection <collection-id> \
   --tag scopevisio-test
 ```
 
+The current implementation keeps generic `get`, `post`, and `download` commands, plus grouped `teamwork upload` for multipart document upload. Folder and collection reads remain generic JSON calls until live Teamworkbridge tests prove a specialized command is useful.
+
 ## Non-Technical Users
 
-For out-of-the-box use, publish GitHub Releases with prebuilt binaries. The
-release workflow builds:
+For out-of-the-box use, publish GitHub Releases with prebuilt binaries. The release workflow builds:
 
-- `scopevisio-darwin-arm64` for Apple Silicon Macs
-- `scopevisio-darwin-amd64` for Intel Macs
-- `scopevisio-linux-amd64`
-- `scopevisio-windows-amd64.exe`
+- `sv-cli-darwin-arm64` for Apple Silicon Macs
+- `sv-cli-darwin-amd64` for Intel Macs
+- `sv-cli-linux-amd64`
+- `sv-cli-windows-amd64.exe`
 
-A Mac user should download the matching `darwin` binary, rename it to
-`scopevisio`, allow it in macOS if Gatekeeper asks, and run it without installing
-Python, Go, or package dependencies.
-
-## Authentication Notes
-
-Scopevisio supports `password`, `refresh_token`, and `authorization_code` grant
-types on `POST /token`. For long-running automation, use a technical user and
-move to refresh-token based authentication after the initial token creation.
-
-By default, tokens are cached at:
-
-```text
-~/.config/scopeskill/token.json
-```
-
-Override that with:
-
-```bash
-SCOPEVISIO_TOKEN_CACHE=/path/to/token.json
-```
-
-The client sends bearer tokens in the standard `Authorization` header. If a
-specific Scopevisio environment expects the spelling used in some help examples,
-set:
-
-```bash
-SCOPEVISIO_AUTH_HEADER=Authorisation
-```
+A Mac user should download the matching `darwin` binary, rename it to `sv-cli`, allow it in macOS if Gatekeeper asks, and run it without installing Python, Go, or package dependencies.
 
 ## Useful API Patterns
 

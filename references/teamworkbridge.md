@@ -15,13 +15,13 @@ The authenticated user also needs Teamwork rights in Scopevisio: System administ
 Retrieve a document resource:
 
 ```bash
-scopevisio get /teamworkbridge/document/<document-id>
+sv-cli get /teamworkbridge/document/<document-id>
 ```
 
 List top-level folders of a collection:
 
 ```bash
-scopevisio get /teamworkbridge/folders \
+sv-cli get /teamworkbridge/folders \
   --query parent=none \
   --query collection=<collection-id>
 ```
@@ -29,7 +29,7 @@ scopevisio get /teamworkbridge/folders \
 List collections:
 
 ```bash
-scopevisio get /teamworkbridge/collections --query all=true
+sv-cli get /teamworkbridge/collections --query all=true
 ```
 
 ## Download
@@ -37,7 +37,7 @@ scopevisio get /teamworkbridge/collections --query all=true
 Download the latest document bytes:
 
 ```bash
-scopevisio download /teamworkbridge/document/<document-id> --out ./document.bin
+sv-cli download /teamworkbridge/document/<document-id> --out ./document.bin
 ```
 
 CenterDevice's document download response should include `Content-Disposition`, `Content-Type`, and `Content-Length`, but the current helper writes to the `--out` path supplied by the caller. Choose the extension yourself if the response filename is unavailable.
@@ -47,7 +47,7 @@ CenterDevice's document download response should include `Content-Disposition`, 
 Upload a new document with multipart form data:
 
 ```bash
-scopevisio teamwork-upload ./invoice.pdf \
+sv-cli teamwork upload ./invoice.pdf \
   --collection <collection-id> \
   --tag scopevisio-test
 ```
@@ -75,10 +75,14 @@ Equivalent metadata shape:
 Provide custom metadata from a file:
 
 ```bash
-scopevisio teamwork-upload ./invoice.pdf --metadata @metadata.json
+sv-cli teamwork upload ./invoice.pdf --metadata @metadata.json
 ```
 
 The helper fills `metadata.document.filename` and `metadata.document.size` from the file if omitted. It posts to `/teamworkbridge/documents`.
+
+## Current Command Shape
+
+The current implementation uses generic `get`, `post`, and `download` commands for simple HTTP calls and `teamwork upload` for multipart document upload. Folder and collection reads remain generic JSON calls until live Teamworkbridge tests show a strong reason to add convenience commands.
 
 ## New Version
 

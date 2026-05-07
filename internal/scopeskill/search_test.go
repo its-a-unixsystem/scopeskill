@@ -120,6 +120,7 @@ func TestRecordsFromResponse(t *testing.T) {
 	}{
 		{name: "nil", raw: nil, want: nil},
 		{name: "top-level array", raw: []any{map[string]any{"id": 1}}, want: []any{map[string]any{"id": 1}}},
+		{name: "wrapped under records", raw: map[string]any{"records": []any{map[string]any{"id": 1.0}}}, want: []any{map[string]any{"id": 1.0}}},
 		{name: "wrapped under results", raw: map[string]any{"results": []any{1.0, 2.0}}, want: []any{1.0, 2.0}},
 		{name: "wrapped under data", raw: map[string]any{"data": []any{"a"}}, want: []any{"a"}},
 		{name: "string is not a list", raw: "nope", wantErr: true},

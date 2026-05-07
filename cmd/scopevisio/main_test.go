@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -188,6 +189,135 @@ func TestGetWritesAccessTokenCacheOverridePath(t *testing.T) {
 	}
 	assertMode(t, filepath.Dir(cachePath), 0o700)
 	assertMode(t, cachePath, 0o600)
+}
+
+func TestDownloadWritesGenericBinaryResponse(t *testing.T) {
+	var requestedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			writeJSONForCLI(w, map[string]any{
+				"token_type":   "Bearer",
+				"access_token": "access-from-refresh",
+				"expires_in":   3600,
+			})
+		default:
+			requestedPath = r.URL.Path
+			if got := r.Header.Get("Accept"); got != "*/*" {
+				t.Fatalf("Accept = %q", got)
+			}
+			_, _ = w.Write([]byte("document-bytes"))
+		}
+	}))
+	defer server.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config")
+	configRaw := []byte("BASE_URL=" + server.URL + "\nCUSTOMER=1234567\nREST_REFRESH_TOKEN=refresh-token\n")
+	if err := os.WriteFile(configPath, configRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(scopevisio.EnvAccessTokenCache, filepath.Join(t.TempDir(), "access-token.json"))
+	outPath := filepath.Join(t.TempDir(), "doc.bin")
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "download", "/teamworkbridge/document/doc-1", "--out", outPath}); err != nil {
+		t.Fatal(err)
+	}
+	if requestedPath != "/rest/teamworkbridge/document/doc-1" {
+		t.Fatalf("requested path = %q", requestedPath)
+	}
+	raw, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "document-bytes" {
+		t.Fatalf("downloaded = %q", string(raw))
+	}
+	if !strings.Contains(output.String(), outPath) {
+		t.Fatalf("output = %q", output.String())
+	}
+}
+
+func TestTeamworkUploadCommandBuildsMultipartRequest(t *testing.T) {
+	var contentType string
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			writeJSONForCLI(w, map[string]any{
+				"token_type":   "Bearer",
+				"access_token": "access-from-refresh",
+				"expires_in":   3600,
+			})
+		case "/rest/teamworkbridge/documents":
+			contentType = r.Header.Get("Content-Type")
+			raw, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body = string(raw)
+			writeJSONForCLI(w, map[string]any{"id": "doc-1"})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config")
+	configRaw := []byte("BASE_URL=" + server.URL + "\nCUSTOMER=1234567\nREST_REFRESH_TOKEN=refresh-token\n")
+	if err := os.WriteFile(configPath, configRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(scopevisio.EnvAccessTokenCache, filepath.Join(t.TempDir(), "access-token.json"))
+	localFilePath := filepath.Join(t.TempDir(), "invoice.pdf")
+	if err := os.WriteFile(localFilePath, []byte("invoice"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "teamwork", "upload", localFilePath, "--collection", "collection-1", "--tag", "scopevisio-test"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"id": "doc-1"`) {
+		t.Fatalf("output = %q", output.String())
+	}
+	if !strings.Contains(contentType, "multipart/form-data") {
+		t.Fatalf("Content-Type = %q", contentType)
+	}
+	for _, want := range []string{
+		`name="metadata"`,
+		`name="document"; filename="invoice.pdf"`,
+		`"filename":"invoice.pdf"`,
+		`"size":7`,
+		`"add-to-collection":["collection-1"]`,
+		`"add-tag":["scopevisio-test"]`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("multipart body missing %q in %s", want, body)
+		}
+	}
+}
+
+func TestTeamworkWithoutSubcommandPrintsHelpAndFails(t *testing.T) {
+	output, _ := withCLI(t, "", false)
+	client := scopevisio.NewClient(scopevisio.Config{AccessToken: "access-token"})
+
+	err := teamwork(client, nil)
+	if err == nil {
+		t.Fatal("expected missing teamwork subcommand error")
+	}
+	if !strings.Contains(output.String(), "upload") {
+		t.Fatalf("output = %q", output.String())
+	}
+}
+
+func TestTopLevelTeamworkUploadCommandIsRemoved(t *testing.T) {
+	withCLI(t, "", false)
+
+	err := run([]string{"teamwork-upload"})
+	if err == nil || !strings.Contains(err.Error(), "unknown command: teamwork-upload") {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 func TestAuthLoginUsesDefaultConfigPath(t *testing.T) {

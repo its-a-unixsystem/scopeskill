@@ -103,6 +103,42 @@ func TestLoginUsesInitialCredentials(t *testing.T) {
 	}
 }
 
+func TestLoginOmitsEmptyOrganisationID(t *testing.T) {
+	var form url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/token" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		form = r.PostForm
+		writeJSON(w, map[string]any{
+			"token_type":    "Bearer",
+			"access_token":  "access-1",
+			"refresh_token": "refresh-1",
+			"expires_in":    3600,
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{BaseURL: server.URL})
+	token, err := client.Login(InitialCredentials{
+		Customer: "1234567",
+		Username: "tech@example.com",
+		Password: "secret-password",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token.RefreshToken != "refresh-1" {
+		t.Fatalf("refresh token = %q", token.RefreshToken)
+	}
+	if form.Has("organisation_id") {
+		t.Fatalf("organisation_id = %q", form.Get("organisation_id"))
+	}
+}
+
 func TestJSONRequestAddsBearerToken(t *testing.T) {
 	var auth string
 	var requestBody map[string]any

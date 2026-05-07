@@ -232,28 +232,30 @@ func TestAuthLoginWritesConfigAndGetUsesIt(t *testing.T) {
 	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	output, stderr := withCLI(t, "1234567\ntech@example.com\nsecret-password\norg-secret-id\n", true)
+	output, stderr := withCLI(t, "1234567\ntech@example.com\nsecret-password\n\n", true)
 	if err := run([]string{"--config", path, "auth", "login"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "Scopevisio config written") {
 		t.Fatalf("output = %q", output.String())
 	}
-	for _, prompt := range []string{"Customer number:", "Username:", "Password:", "Organisation ID:"} {
+	for _, prompt := range []string{"Kundennummer:", "Benutzername:", "Passwort:", "Organisations-ID (optional):"} {
 		if !strings.Contains(stderr.String(), prompt) {
 			t.Fatalf("stderr missing prompt %q in %q", prompt, stderr.String())
 		}
 	}
 	for key, want := range map[string]string{
-		"grant_type":      "password",
-		"customer":        "1234567",
-		"username":        "tech@example.com",
-		"password":        "secret-password",
-		"organisation_id": "org-secret-id",
+		"grant_type": "password",
+		"customer":   "1234567",
+		"username":   "tech@example.com",
+		"password":   "secret-password",
 	} {
 		if got := passwordGrant.Get(key); got != want {
 			t.Fatalf("%s = %q", key, got)
 		}
+	}
+	if passwordGrant.Has("organisation_id") {
+		t.Fatalf("organisation_id = %q", passwordGrant.Get("organisation_id"))
 	}
 
 	configRaw, err := os.ReadFile(path)

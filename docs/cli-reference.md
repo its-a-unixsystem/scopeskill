@@ -76,6 +76,75 @@ Search and inspect personal accounts linked to a Kontakt.
   Show the account details.
 - `sv-cli debitor balance <Kontonummer> [--from=YYYY-MM-DD] [--to=YYYY-MM-DD]` / `sv-cli kreditor balance ...`
   Show the balance of the personal account.
+- `sv-cli debitor journal [--all]` / `sv-cli kreditor journal [--all]`
+  Search personal Journal entries for the account side.
+- `sv-cli debitor bank-connections <Kontonummer>` / `sv-cli kreditor bank-connections <Kontonummer>`
+  Show the bank connections for the personal account.
+
+### `personenkonto`
+
+Search Journal entries across personal accounts.
+
+- `sv-cli personenkonto journal [--all]`
+  Search personal Journal entries.
+
+### `buchhaltung`
+
+Inspect basic accounting configuration.
+
+- `sv-cli buchhaltung info`
+  Fetch accounting info.
+- `sv-cli buchhaltung mapping`
+  Fetch account mapping.
+- `sv-cli buchhaltung gewinn-und-verlust [--balance-date=DD.MM.YYYY]`
+  Fetch gain and loss adjustment accounts.
+
+### `dimension` / `textbaustein`
+
+Inspect dimension metadata and text templates.
+
+- `sv-cli dimension search [--all]`
+  Search dimensions.
+- `sv-cli dimension entries <dimension> [--page=N] [--page-size=N]`
+  Fetch entries for one dimension by name or number.
+- `sv-cli textbaustein list`
+  List Textbausteine.
+
+### `statistik`
+
+Search and inspect statistical accounts and postings.
+
+- `sv-cli statistik konto search [--all]`
+  Search Statistik-Konten.
+- `sv-cli statistik konto show <number>`
+  Show one Statistik-Konto.
+- `sv-cli statistik buchung search [--all]`
+  Search Statistik-Buchungen.
+- `sv-cli statistik buchung show <rowNumber>`
+  Show one Statistik-Buchung.
+
+### Billing and Tax Configuration
+
+Inspect payment terms and VAT configuration.
+
+- `sv-cli zahlungsbedingung list`
+  List Zahlungsbedingungen.
+- `sv-cli zahlungsbedingung show <id>`
+  Show one Zahlungsbedingung.
+- `sv-cli steuermatrix list`
+  List Steuermatrix entries.
+- `sv-cli steuersachverhalt list`
+  List Steuersachverhalte.
+
+### `eingangsrechnung` / `gutschrift`
+
+Search and inspect vendor-side Belege with stitched Kontakt data.
+
+- `sv-cli eingangsrechnung search [filters] [--all]` / `sv-cli gutschrift search [filters] [--all]`
+  Search for Eingangsrechnungen or Gutschriften.
+  Filters: `--document-number`, `--vendor-name`, `--content-state`, `--payment-state`, `--posting-state`.
+- `sv-cli eingangsrechnung show <Belegnummer>` / `sv-cli gutschrift show <Belegnummer>`
+  Show the Beleg and its associated Kontakt when one can be resolved.
 
 ### `offene-posten`
 
@@ -101,7 +170,7 @@ Search chronological postings (Buchungen).
 
 ### Search Pagination
 
-All `search` and `list` commands support the following pagination flags:
+Search-style commands support the following pagination flags:
 
 - `--page-size=N`: Override the single-page size (default: 100, max: 1000).
 - `--all`: Page through all results automatically at `pageSize=1000`, capped at 10000.

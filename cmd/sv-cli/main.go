@@ -89,6 +89,66 @@ func run(args []string) error {
 			return err
 		}
 		return kreditor(client, commandArgs[1:])
+	case "personenkonto":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return personenkonto(client, commandArgs[1:])
+	case "buchhaltung":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return buchhaltung(client, commandArgs[1:])
+	case "dimension":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return dimension(client, commandArgs[1:])
+	case "textbaustein":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return textbaustein(client, commandArgs[1:])
+	case "statistik":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return statistik(client, commandArgs[1:])
+	case "zahlungsbedingung":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return zahlungsbedingung(client, commandArgs[1:])
+	case "steuermatrix":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return steuermatrix(client, commandArgs[1:])
+	case "steuersachverhalt":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return steuersachverhalt(client, commandArgs[1:])
+	case "eingangsrechnung":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return eingangsrechnung(client, commandArgs[1:])
+	case "gutschrift":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return gutschrift(client, commandArgs[1:])
 	case "offene-posten":
 		client, err := newClient(configPath)
 		if err != nil {
@@ -641,6 +701,16 @@ commands:
   kontakt           search and inspect Kontakte (master directory)
   debitor           search and inspect Debitoren
   kreditor          search and inspect Kreditoren
+  personenkonto     search personal account Journal entries
+  buchhaltung       inspect accounting configuration
+  dimension         search dimensions and inspect entries
+  textbaustein      list Textbausteine
+  statistik         search and inspect Statistik accounts and postings
+  zahlungsbedingung list and inspect Zahlungsbedingungen
+  steuermatrix      list Steuermatrix entries
+  steuersachverhalt list Steuersachverhalte
+  eingangsrechnung  search and inspect Eingangsrechnungen
+  gutschrift        search and inspect Gutschriften
   offene-posten     search and inspect Offene Posten
   journal           search the Journal (chronological postings)
   buchung           inspect a single Buchung (posting)`)

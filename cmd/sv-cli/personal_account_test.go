@@ -12,26 +12,29 @@ import (
 )
 
 type personalAccountStub struct {
-	server         *httptest.Server
-	accountBodies  map[string][]map[string]any
-	accountRecords map[string][]any
-	contactBodies  []map[string]any
-	contactPages   [][]any
-	contactIdx     int
-	contactByID    map[string]map[string]any
-	fiscalYearHits int
-	susaQueries    map[string][]url.Values
-	susaRecords    map[string][]any
+	server             *httptest.Server
+	accountBodies      map[string][]map[string]any
+	accountRecords     map[string][]any
+	bankConnections    map[string]any
+	bankConnectionHits []string
+	contactBodies      []map[string]any
+	contactPages       [][]any
+	contactIdx         int
+	contactByID        map[string]map[string]any
+	fiscalYearHits     int
+	susaQueries        map[string][]url.Values
+	susaRecords        map[string][]any
 }
 
 func newPersonalAccountStub(t *testing.T) *personalAccountStub {
 	t.Helper()
 	stub := &personalAccountStub{
-		accountBodies:  map[string][]map[string]any{},
-		accountRecords: map[string][]any{},
-		contactByID:    map[string]map[string]any{},
-		susaQueries:    map[string][]url.Values{},
-		susaRecords:    map[string][]any{},
+		accountBodies:   map[string][]map[string]any{},
+		accountRecords:  map[string][]any{},
+		bankConnections: map[string]any{},
+		contactByID:     map[string]map[string]any{},
+		susaQueries:     map[string][]url.Values{},
+		susaRecords:     map[string][]any{},
 	}
 	stub.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -51,6 +54,12 @@ func newPersonalAccountStub(t *testing.T) *personalAccountStub {
 				records = []any{}
 			}
 			writeJSONForCLI(w, map[string]any{"records": records})
+		case strings.HasPrefix(r.URL.Path, "/rest/debitoraccounts/") && strings.HasSuffix(r.URL.Path, "/bankConnections"):
+			stub.bankConnectionHits = append(stub.bankConnectionHits, r.URL.Path)
+			writeJSONForCLI(w, stub.bankConnections[r.URL.Path])
+		case strings.HasPrefix(r.URL.Path, "/rest/kreditoraccounts/") && strings.HasSuffix(r.URL.Path, "/bankConnections"):
+			stub.bankConnectionHits = append(stub.bankConnectionHits, r.URL.Path)
+			writeJSONForCLI(w, stub.bankConnections[r.URL.Path])
 		case r.URL.Path == "/rest/contacts" && r.Method == http.MethodPost:
 			raw, _ := io.ReadAll(r.Body)
 			var body map[string]any
@@ -185,6 +194,48 @@ func TestKreditorSearchUsesKreditorEndpointAndActiveFilter(t *testing.T) {
 	second := search[1].(map[string]any)
 	if second["field"] != "active" || second["operator"] != "equals" || second["value"] != true {
 		t.Fatalf("active condition = %#v", second)
+	}
+}
+
+func TestPersonalAccountBankConnectionsFetchesAccountEndpoint(t *testing.T) {
+	cases := []struct {
+		command string
+		path    string
+	}{
+		{"debitor", "/rest/debitoraccounts/10000/bankConnections"},
+		{"kreditor", "/rest/kreditoraccounts/70000/bankConnections"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.command, func(t *testing.T) {
+			stub := newPersonalAccountStub(t)
+			stub.bankConnections[tc.path] = map[string]any{
+				"records": []any{
+					map[string]any{"iban": "DE02120300000000202051"},
+				},
+			}
+			configPath := sachkontoConfigPath(t, stub.server.URL)
+			output, _ := withCLI(t, "", false)
+			number := "10000"
+			if tc.command == "kreditor" {
+				number = "70000"
+			}
+
+			if err := run([]string{"--config", configPath, tc.command, "bank-connections", number}); err != nil {
+				t.Fatal(err)
+			}
+
+			if len(stub.bankConnectionHits) != 1 || stub.bankConnectionHits[0] != tc.path {
+				t.Fatalf("bank connection hits = %#v", stub.bankConnectionHits)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+				t.Fatalf("stdout JSON: %v: %s", err, output.String())
+			}
+			records := got["records"].([]any)
+			if records[0].(map[string]any)["iban"] != "DE02120300000000202051" {
+				t.Fatalf("records = %#v", records)
+			}
+		})
 	}
 }
 

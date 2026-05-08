@@ -1,119 +1,130 @@
 ---
 name: scopeskill
-description: Automate Scopevisio bookkeeping and Teamwork/CenterDevice document workflows. Use when Codex needs to authenticate against the Scopevisio REST API, obtain or refresh tokens, inspect Scopevisio business objects, call bookkeeping endpoints, or access, upload, and download Teamworkbridge documents through the Scopevisio API.
+description: |
+  Automate Scopevisio bookkeeping and Teamwork/CenterDevice document workflows via the sv-cli. Use this skill whenever the user wants to interact with the Scopevisio REST API, fetch chart of accounts (SKR), search master data (Kontakte), query journals, check open items, or upload/download Teamworkbridge documents. Do NOT ask the user for credentials if a valid token is already configured.
 ---
 
 # scopeskill
 
-Use Scopevisio's REST API through the repo helper first; fall back to raw `curl` only when the helper lacks a needed endpoint.
+Automate Scopevisio bookkeeping and Teamwork/CenterDevice document workflows. The `sv-cli` helper provides specialized subcommands for accounting entities and acts as a generic client for the Scopevisio REST API. 
 
-## Quick Start
+Run `sv-cli --help` or `sv-cli <command> --help` for full option details.
 
-1. Read `references/auth.md` before creating or refreshing tokens.
-2. Read `references/bookkeeping.md` before changing contacts, products, projects, offers, orders, invoices, payments, journal data, tasks, or custom fields.
-3. Read `references/teamworkbridge.md` before accessing, uploading, or downloading Teamwork/CenterDevice documents.
-4. Before interpreting Kontonummern, run `sv-cli auth show` and read `SKR` from the scopeskill config. `auth login` probes and stores it; if it is missing, read `references/skr-overview.md` and only then use the documented 4400/8400 fallback heuristic.
-5. Prefer the compiled `sv-cli` binary. During development, use `go run ./cmd/sv-cli ...` from this repo.
+## Prerequisites
 
-## Authentication
-
-Never ask the user for Initial credentials in chat if the scopeskill config or an environment override already provides a REST refresh token. Use a technical Scopevisio user for automation.
-
-One-time interactive setup:
-
-```bash
-sv-cli auth login
-```
-
-`auth login` prompts on a TTY for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID. Password input is masked with `*`. It exchanges those inputs for tokens and writes `CUSTOMER` plus `REST_REFRESH_TOKEN` to the active scopeskill config. It does not store the username, password, or organisation ID.
-
-Inspect or manage the configured REST refresh token:
-
-```bash
-sv-cli auth show    # redacted token plus source=config or source=env:SCOPESKILL_REST_REFRESH_TOKEN
-sv-cli auth secret  # full token plus the same source label
-sv-cli auth delete  # remove REST_REFRESH_TOKEN from the scopeskill config
-```
-
-`auth login` also runs Unternehmen probes. For bookkeeping, it stores `SKR=skr03` or `SKR=skr04` when the Mandant's standard Erlöskonto probe is conclusive.
-
-Check the active account:
-
-```bash
-sv-cli get /myaccount
-```
-
-## Configuration
-
-The scopeskill config is an env-file read by `sv-cli`. v1 reads these keys:
-
-- `REST_REFRESH_TOKEN`
-- `CUSTOMER`
-- `SKR`
-- `BASE_URL`
-
-Environment overrides:
-
-- `SCOPESKILL_REST_REFRESH_TOKEN`
-- `SCOPESKILL_BASE_URL`
-- `SCOPESKILL_CONFIG`
-- `SCOPESKILL_ACCESS_TOKEN_CACHE`
-
-`SCOPESKILL_CUSTOMER` deliberately does not exist; switch identity with `--config` or `SCOPESKILL_CONFIG` so `CUSTOMER` and `REST_REFRESH_TOKEN` stay paired (see `docs/adr/0004-customer-not-an-env-override.md`). The bearer header is always `Authorization`; there is no `AUTH_HEADER` config key or auth-header environment override (see `docs/adr/0003-drop-auth-header-configurability.md`).
-
-The Access token cache is a separate, disposable per-fingerprint file for short-lived REST access tokens. Deleting it does not remove setup because the REST refresh token remains in the scopeskill config (see `docs/adr/0002-access-token-cache-per-refresh-token.md`).
-
-## Bookkeeping Calls
-
-Use the generic commands for JSON API calls:
-
-```bash
-sv-cli get /myaccount
-sv-cli post /contacts --data '{"page":0,"pageSize":25}'
-```
-
-For list/search endpoints, assume Scopevisio usually expects `POST` plus a JSON search body. Keep changes narrow, verify required profiles in the live Swagger, and do not invent field names for custom fields.
-
-For SKR-specific account interpretation, use `SKR` from config and then read `references/skr03.csv` or `references/skr04.csv`. Do not guess SKR03 vs SKR04 from a single Kontonummer if the config is missing and the 4400/8400 probe is inconclusive.
-
-## Teamworkbridge Document Workflow
-
-Teamworkbridge maps CenterDevice API resources under Scopevisio's `/teamworkbridge/...` path and uses the Scopevisio token.
-
-From an already configured `sv-cli`, confirm the active refresh token source:
+Must be authenticated. Check the active token and chart of accounts (SKR) configuration:
 
 ```bash
 sv-cli auth show
 ```
 
-List collections, then copy the desired `id`:
+Output example:
+```
+REST_REFRESH_TOKEN: 8f4c... [source: config]
+SKR: skr04 [source: config]
+```
+
+If the token is missing or invalid, perform the interactive setup. **Never ask the user for their password in chat.**
 
 ```bash
+sv-cli auth login
+```
+
+## Workflow
+
+Follow this escalation pattern when interacting with Scopevisio:
+
+1. **Verify Context** - Check `auth show` to determine the active `SKR`. Interpreting Kontonummern requires knowing the SKR (reference `references/skr03.csv` or `references/skr04.csv`).
+2. **Dedicated Commands** - Prefer specific `sv-cli` subcommands (e.g., `sachkonto search`, `offene-posten list`) over raw generic endpoints, as they handle complex pagination and filtering automatically.
+3. **Generic API Calls** - If a dedicated command doesn't exist, use `sv-cli get` or `sv-cli post` with raw paths.
+4. **Escape Hatch** - If CLI flags don't support a specific search filter, use the `--data` flag on search endpoints to inject a raw JSON query body.
+
+| Need                                    | Command                                  | When                                                                |
+| --------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------- |
+| Find a contact/customer/vendor          | `kontakt search`                         | You need the Kontakt ID to query linked personal accounts           |
+| Check a specific impersonal account     | `sachkonto show` / `balance`             | Investigating G/L (General Ledger) accounts                         |
+| Check a customer/vendor account         | `debitor show` / `kreditor show`         | Investigating personal accounts linked to a Kontakt                 |
+| Find open invoices/vouchers             | `offene-posten list --seite=...`         | Looking for unsettled items on either the debitor or kreditor side  |
+| Search chronological postings           | `journal search`                         | You need to see the ledger entries (Buchungen)                      |
+| View an incoming invoice                | `eingangsrechnung show`                  | Investigating vendor-side Belege (documents)                        |
+| Fetch accounting metadata               | `buchhaltung info` / `dimension search`  | Need context on how the system is configured                        |
+| Browse Teamworkbridge collections       | `get /teamworkbridge/collections`        | Navigating the remote CenterDevice document tree                    |
+| Upload a local file to Teamwork         | `teamwork upload <file>`                 | Pushing a file, optionally to a specific `--collection`             |
+| Download a Teamwork document            | `download /teamworkbridge/document/<id>` | Pulling a file from CenterDevice to the local disk                  |
+
+## Working with Accounting Data
+
+### Master Data (Kontakte) & Personal Accounts
+Before querying personal accounts (Debitor/Kreditor), you often need the `Kontakt`:
+```bash
+sv-cli kontakt search --name="LinkedIn"
+sv-cli kreditor search --name="LinkedIn"
+```
+
+### Balances and Open Items
+Check balances and unsettled items. You must specify `--seite=debitor` or `--seite=kreditor` for open items:
+```bash
+sv-cli kreditor balance 70019
+sv-cli offene-posten list --seite=kreditor --konto=70019 --all
+```
+
+### Ledger Postings (Journal)
+Search for specific postings by account or amount:
+```bash
+sv-cli journal search --konto=70019 --amount-min=100.00 --all
+```
+
+### Belege (Invoices & Credits)
+Search for specific documents or filter by workflow state. Note that workflow states are integers (e.g., `0` = Unbearbeitet):
+```bash
+# Find all unprocessed (unbearbeitete) incoming invoices
+sv-cli eingangsrechnung search --content-state=0 --all
+```
+
+**Important Note on Belegnummern:** The `show` command (`sv-cli eingangsrechnung show <number>`) expects the internal Scopevisio `number` (e.g., `2025-42`) or the internal `id`. If you only have the vendor's external invoice number (`documentNumber`), `show` will fail with "not found". In that case, search by `documentNumber` first to find the `id`, then fetch the details:
+```bash
+# 1. Find the internal ID using the external document number
+sv-cli eingangsrechnung search --document-number="INV-1234"
+
+# 2. Fetch the full details using the internal ID
+sv-cli get /incominginvoice/<id>
+```
+
+## Teamworkbridge Integration
+
+Teamworkbridge resources map directly to Scopevisio's `/teamworkbridge/` endpoints. 
+
+**List and Download:**
+```bash
+# 1. Find the collection ID
 sv-cli get /teamworkbridge/collections --query all=true
+
+# 2. Find documents in that collection
+sv-cli get /teamworkbridge/documents --query all=true --query collection=<id>
+
+# 3. Download the specific document
+sv-cli download /teamworkbridge/document/<doc-id> --out ./downloaded.pdf
 ```
 
-List documents in a collection:
-
+**Upload:**
 ```bash
-sv-cli get /teamworkbridge/documents \
-  --query all=true \
-  --query collection=<collection-id>
+sv-cli teamwork upload ./invoice.pdf --collection <collection-id> --tag "Finance"
 ```
 
-Retrieve document metadata or download the document bytes:
+## Pagination & Advanced Queries
 
+Commands like `search` and `list` support pagination out of the box:
+- `--all`: Automatically fetch up to 10,000 results.
+- `--page-size=N`: Adjust the chunk size.
+
+If built-in flags are insufficient, use the raw JSON search escape hatch:
 ```bash
-sv-cli get /teamworkbridge/document/<document-id>
-sv-cli download /teamworkbridge/document/<document-id> --out ./document.pdf
+# Pass raw Scopevisio JSON search body
+sv-cli kontakt search --data @complex-search.json
 ```
 
-If a command returns `404`, treat it as either not found or not visible to the authenticated user. Check user rights in Scopevisio under System administration -> DMS Teamwork -> Manage users.
-
-## Live Docs
-
-Use these sources when endpoint details matter:
-
-- Scopevisio first steps: `https://help.scopevisio.com/en/articles/467358-rest-api-first-steps`
-- Scopevisio general docs: `https://help.scopevisio.com/en/articles/467359-general-documentation`
-- Swagger JSON: `https://appload.scopevisio.com/rest/swagger.json`
-- Swagger UI: `https://appload.scopevisio.com/static/swagger/index.html#/`
+## Domain Language Rules
+Always adhere to the terminology in `docs/agents/domain.md`. For example:
+- Use **Unternehmen** (not Mandant).
+- Use **Kontakt** (not Customer/Supplier, unless referring specifically to the linked account side).
+- Use **Beleg** (not Voucher).

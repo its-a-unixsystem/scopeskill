@@ -117,8 +117,20 @@ The chronological sequence of all **Buchungen** for a Fiskaljahr; queried but ne
 _Avoid_: Ledger
 
 **Beleg**:
-The document underlying one or more **Buchungen**, identified by Belegnummer; an Eingangs- or Ausgangsrechnung is one kind of **Beleg**.
+The document underlying one or more **Buchungen**, identified by Belegnummer. Examples include **Eingangsrechnung** and **Gutschrift**.
 _Avoid_: Voucher, document when the Scopevisio document type is meant
+
+**Beleg-Status**:
+A **Beleg** (like an **Eingangsrechnung**) progresses through three independent state machines: `contentState` (sachliche Prüfung), `paymentState` (Zahlungsfreigabe), and `postingState` (Verbuchung). The CLI filters on the raw IDs (e.g. `postingStateId=3`) rather than mapping the string names.
+_Avoid_: Workflow state, approval status when a specific state machine is meant
+
+**Eingangsrechnung**:
+A specific kind of **Beleg** representing an incoming invoice from a supplier (**Kreditor**).
+_Avoid_: Incoming invoice
+
+**Gutschrift**:
+A specific kind of **Beleg** representing a credit note.
+_Avoid_: Credit, credit note
 
 **Offene Posten**:
 The list of unsettled **Belege** on either the debitor side (Forderungen) or the kreditor side (Verbindlichkeiten); the side is always specified explicitly when querying.

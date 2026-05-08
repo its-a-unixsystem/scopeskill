@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/its-a-unixsystem/scopeskill/internal/scopeskill"
@@ -15,6 +16,7 @@ type personalAccountKind struct {
 	outputKey          string
 	searchEndpoint     string
 	saldoEndpoint      string
+	journalEndpoint    string
 	contactNumberField string
 }
 
@@ -24,6 +26,7 @@ var (
 		outputKey:          "debitor",
 		searchEndpoint:     "/debitoraccounts",
 		saldoEndpoint:      scopeskill.SaldoEndpointDebitor,
+		journalEndpoint:    "/openitems/debitor/list",
 		contactNumberField: "debitorNumber",
 	}
 	kreditorAccountKind = personalAccountKind{
@@ -31,6 +34,7 @@ var (
 		outputKey:          "kreditor",
 		searchEndpoint:     "/kreditoraccounts",
 		saldoEndpoint:      scopeskill.SaldoEndpointKreditor,
+		journalEndpoint:    "/openitems/creditor/list",
 		contactNumberField: "kreditorNumber",
 	}
 )
@@ -51,7 +55,7 @@ func kreditor(client *scopeskill.Client, args []string) error {
 
 func personalAccount(client *scopeskill.Client, kind personalAccountKind, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintf(cliOutput, "%s subcommands: search show balance\n", kind.command)
+		fmt.Fprintf(cliOutput, "%s subcommands: search show balance journal bank-connections\n", kind.command)
 		return fmt.Errorf("missing %s subcommand", kind.command)
 	}
 	switch args[0] {
@@ -61,6 +65,10 @@ func personalAccount(client *scopeskill.Client, kind personalAccountKind, args [
 		return personalAccountShow(client, kind, args[1:])
 	case "balance":
 		return personalAccountBalance(client, kind, args[1:])
+	case "journal":
+		return personalAccountJournal(client, kind, args[1:])
+	case "bank-connections":
+		return personalAccountBankConnections(client, kind, args[1:])
 	default:
 		return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
 	}
@@ -348,4 +356,32 @@ func personalAccountBalance(client *scopeskill.Client, kind personalAccountKind,
 		return errors.New(notFoundOrUnauthorisedMessage)
 	}
 	return printJSON(rec)
+}
+
+func personalAccountJournal(client *scopeskill.Client, kind personalAccountKind, args []string) error {
+	return runSearchEndpointCommand(client, searchEndpointCommand{
+		name:     kind.command + " journal",
+		endpoint: kind.journalEndpoint,
+	}, args)
+}
+
+func personalAccountBankConnections(client *scopeskill.Client, kind personalAccountKind, args []string) error {
+	flags := flag.NewFlagSet(kind.command+" bank-connections", flag.ContinueOnError)
+	flags.SetOutput(cliError)
+	flags.Usage = func() {
+		fmt.Fprintf(cliError, "usage: sv-cli %s bank-connections <Kontonummer>\n", kind.command)
+	}
+	if err := flags.Parse(normalizeFlagArgs(args)); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 {
+		flags.Usage()
+		return fmt.Errorf("%s bank-connections takes exactly one Kontonummer", kind.command)
+	}
+	number := flags.Arg(0)
+	raw, err := client.JSON(http.MethodGet, kind.searchEndpoint+"/"+url.PathEscape(number)+"/bankConnections", nil, nil)
+	if err != nil {
+		return err
+	}
+	return printJSON(raw)
 }

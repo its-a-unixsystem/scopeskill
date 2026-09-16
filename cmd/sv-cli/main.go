@@ -711,7 +711,7 @@ commands:
   steuersachverhalt list Steuersachverhalte
   eingangsrechnung  search and inspect Eingangsrechnungen
   gutschrift        search and inspect Gutschriften
-  offene-posten     search and inspect Offene Posten
+  offene-posten     search, inspect, and clear Offene Posten
   journal           search the Journal (chronological postings)
   buchung           inspect, create, cancel, or (gated) replace a Buchung (posting)`)
 	return nil

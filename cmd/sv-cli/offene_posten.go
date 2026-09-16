@@ -1,41 +1,48 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/its-a-unixsystem/scopeskill/internal/scopeskill"
 )
 
 type offenePostenSeite struct {
-	name          string
-	endpoint      string
-	accountKind   personalAccountKind
-	belegEndpoint string
+	name             string
+	endpoint         string
+	clearingEndpoint string
+	accountKind      personalAccountKind
+	belegEndpoint    string
 }
 
 var (
 	offenePostenDebitor = offenePostenSeite{
-		name:          "debitor",
-		endpoint:      "/openitems/debtors",
-		accountKind:   debitorAccountKind,
-		belegEndpoint: scopeskill.BelegEndpointOutgoingInvoice,
+		name:             "debitor",
+		endpoint:         "/openitems/debtors",
+		clearingEndpoint: "/openitems/debitor/clearing",
+		accountKind:      debitorAccountKind,
+		belegEndpoint:    scopeskill.BelegEndpointOutgoingInvoice,
 	}
 	offenePostenKreditor = offenePostenSeite{
-		name:          "kreditor",
-		endpoint:      "/openitems/creditors",
-		accountKind:   kreditorAccountKind,
-		belegEndpoint: scopeskill.BelegEndpointIncomingInvoice,
+		name:             "kreditor",
+		endpoint:         "/openitems/creditors",
+		clearingEndpoint: "/openitems/creditor/clearing",
+		accountKind:      kreditorAccountKind,
+		belegEndpoint:    scopeskill.BelegEndpointIncomingInvoice,
 	}
 )
 
 func offenePosten(client *scopeskill.Client, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintln(cliOutput, "offene-posten subcommands: list show")
+		fmt.Fprintln(cliOutput, "offene-posten subcommands: list show ausgleichen")
 		return errors.New("missing offene-posten subcommand")
 	}
 	switch args[0] {
@@ -43,6 +50,8 @@ func offenePosten(client *scopeskill.Client, args []string) error {
 		return offenePostenList(client, args[1:])
 	case "show":
 		return offenePostenShow(client, args[1:])
+	case "ausgleichen":
+		return offenePostenAusgleichen(client, args[1:])
 	default:
 		return fmt.Errorf("unknown offene-posten command: %s", args[0])
 	}
@@ -161,6 +170,137 @@ func offenePostenList(client *scopeskill.Client, args []string) error {
 		records = []any{}
 	}
 	return printJSON(records)
+}
+
+const offenePostenAusgleichenUsage = `usage: sv-cli offene-posten ausgleichen --seite=debitor|kreditor --data @clearing.json [--dry-run] [--yes]
+
+Input schema (--data JSON or @file):
+  clearings                 required; at least one clearing
+  clearings[].documentNumber
+                            required Belegnummer of the clearing document
+  clearings[].documents     required; at least one Offener Posten
+  clearings[].documents[].documentNumber
+                            required Belegnummer of the open item
+  clearings[].documents[].clearingAmount
+                            required numeric Auszifferungsbetrag
+
+Safety:
+  --dry-run   validate the payload and print the write preview; no write request
+  --yes       bypass the interactive "ausgleichen <seite>" confirmation
+
+The command sends the validated payload once and never retries a failed or
+ambiguous write.`
+
+type offenePostenClearingRequest struct {
+	Clearings []offenePostenClearing `json:"clearings"`
+}
+
+type offenePostenClearing struct {
+	DocumentNumber string                         `json:"documentNumber"`
+	Documents      []offenePostenClearingDocument `json:"documents"`
+}
+
+type offenePostenClearingDocument struct {
+	DocumentNumber string      `json:"documentNumber"`
+	ClearingAmount json.Number `json:"clearingAmount"`
+}
+
+func offenePostenAusgleichen(client *scopeskill.Client, args []string) error {
+	flags := flag.NewFlagSet("offene-posten ausgleichen", flag.ContinueOnError)
+	flags.SetOutput(cliError)
+	seiteFlag := flags.String("seite", "", "required OP side: debitor or kreditor")
+	data := flags.String("data", "", "clearing JSON, or @path/to/file.json")
+	dryRun := flags.Bool("dry-run", false, "validate payload and preview only; no write")
+	yes := flags.Bool("yes", false, "skip the interactive confirmation")
+	flags.Usage = func() { fmt.Fprintln(cliError, offenePostenAusgleichenUsage) }
+	if err := flags.Parse(normalizeFlagArgs(args)); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *data == "" {
+		flags.Usage()
+		return errors.New("offene-posten ausgleichen requires --data and takes no positional arguments")
+	}
+	seite, err := parseOffenePostenSeite(*seiteFlag)
+	if err != nil {
+		return err
+	}
+	raw, err := loadRaw(*data)
+	if err != nil {
+		return err
+	}
+	payload, err := parseOffenePostenClearingRequest(raw)
+	if err != nil {
+		return err
+	}
+
+	req := writeRequest{
+		Command:       "offene-posten ausgleichen",
+		Method:        http.MethodPost,
+		Path:          seite.clearingEndpoint,
+		Payload:       payload,
+		ConfirmPhrase: "ausgleichen " + seite.name,
+	}
+	writePreview(client, req)
+
+	output := map[string]any{
+		"seite":    seite.name,
+		"endpoint": "POST " + req.Path,
+		"request":  payload,
+	}
+	if *dryRun {
+		output["status"] = "dry_run"
+		return printJSON(output)
+	}
+	if err := confirmWrite(req, writeOptions{Yes: *yes}); err != nil {
+		return err
+	}
+
+	result, outcome, writeErr := executeWriteOnce(client, req, func(any) bool { return true })
+	switch outcome {
+	case writeRejected:
+		return writeErr
+	case writeAccepted:
+		output["status"] = "cleared"
+		if result != nil {
+			output["response"] = result
+		}
+		return printJSON(output)
+	default:
+		return fmt.Errorf("clearing result is ambiguous; no retry performed: %w", writeErr)
+	}
+}
+
+func parseOffenePostenClearingRequest(raw []byte) (offenePostenClearingRequest, error) {
+	var request offenePostenClearingRequest
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	if err := decoder.Decode(&request); err != nil {
+		return offenePostenClearingRequest{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return offenePostenClearingRequest{}, errors.New("unexpected trailing data after JSON document")
+	}
+	if len(request.Clearings) == 0 {
+		return offenePostenClearingRequest{}, errors.New("clearings must contain at least one entry")
+	}
+	for i, clearing := range request.Clearings {
+		if strings.TrimSpace(clearing.DocumentNumber) == "" {
+			return offenePostenClearingRequest{}, fmt.Errorf("clearings[%d]: documentNumber is required", i+1)
+		}
+		if len(clearing.Documents) == 0 {
+			return offenePostenClearingRequest{}, fmt.Errorf("clearings[%d]: documents must contain at least one entry", i+1)
+		}
+		for j, document := range clearing.Documents {
+			if strings.TrimSpace(document.DocumentNumber) == "" {
+				return offenePostenClearingRequest{}, fmt.Errorf("clearings[%d].documents[%d]: documentNumber is required", i+1, j+1)
+			}
+			if document.ClearingAmount == "" {
+				return offenePostenClearingRequest{}, fmt.Errorf("clearings[%d].documents[%d]: clearingAmount is required", i+1, j+1)
+			}
+		}
+	}
+	return request, nil
 }
 
 func offenePostenShow(client *scopeskill.Client, args []string) error {

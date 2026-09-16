@@ -233,6 +233,10 @@ _Avoid_: Travel entries
 - On a 401/403 from the refresh-token exchange (or on a 401 from an API call made with a freshly minted **REST access token**), the **`sv-cli`** deletes the **Access token cache** file, leaves the **REST refresh token** in **scopeskill config**, and exits non-zero with a message recommending **Auth login**.
 - On a 5xx or network failure during the refresh-token exchange, the **`sv-cli`** leaves both the **Access token cache** and **scopeskill config** untouched and exits non-zero with a transient-error message; it does not conflate Scopevisio outages with revoked tokens.
 - A **Teamwork document** is the remote object; a **Local file** is the on-disk content uploaded or downloaded.
+- `sv-cli datev export` writes the `/datevexport` response bytes unchanged, and
+  `sv-cli datev import` sends Local file bytes in the API-required Base64 JSON
+  envelope without parsing or validating DATEV EXTF; Scopevisio validation
+  error response bodies are preserved in the returned API error.
 - Teamwork folders are accessed through generic JSON calls in the first implementation.
 - `download <path> --out` is a generic binary GET and is not Teamwork-specific.
 - Teamwork-specific operations that need bespoke flags or formatting (currently only multipart upload) live under the `teamwork` subcommand group, e.g. `sv-cli teamwork upload`.

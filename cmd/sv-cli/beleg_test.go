@@ -21,6 +21,12 @@ type belegStub struct {
 	kreditorRecords []any
 	contactByID     map[string]map[string]any
 	belegByPath     map[string]map[string]any
+	belegGets       int
+	updateBodies    []map[string]any
+	updatePaths     []string
+	updateStatus    int
+	applyUpdate     bool
+	ambiguousUpdate bool
 }
 
 func newBelegStub(t *testing.T) *belegStub {
@@ -30,6 +36,8 @@ func newBelegStub(t *testing.T) *belegStub {
 		searchRecords: map[string][]any{},
 		contactByID:   map[string]map[string]any{},
 		belegByPath:   map[string]map[string]any{},
+		updateStatus:  http.StatusOK,
+		applyUpdate:   true,
 	}
 	stub.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -67,8 +75,33 @@ func newBelegStub(t *testing.T) *belegStub {
 				return
 			}
 			writeJSONForCLI(w, rec)
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/rest/incominginvoice/"):
+			raw, _ := io.ReadAll(r.Body)
+			var body map[string]any
+			_ = json.Unmarshal(raw, &body)
+			stub.updateBodies = append(stub.updateBodies, body)
+			stub.updatePaths = append(stub.updatePaths, r.URL.Path)
+			if stub.applyUpdate {
+				if rec := stub.belegByPath[r.URL.Path]; rec != nil {
+					for field, value := range body {
+						rec[field] = value
+					}
+				}
+			}
+			if stub.ambiguousUpdate {
+				hijacker := w.(http.Hijacker)
+				conn, _, _ := hijacker.Hijack()
+				_ = conn.Close()
+				return
+			}
+			if stub.updateStatus != http.StatusOK {
+				http.Error(w, "provider rejected update", stub.updateStatus)
+				return
+			}
+			writeJSONForCLI(w, map[string]any{"success": true})
 		case strings.HasPrefix(r.URL.Path, "/rest/incominginvoice/") ||
 			strings.HasPrefix(r.URL.Path, "/rest/credit/"):
+			stub.belegGets++
 			rec, ok := stub.belegByPath[r.URL.Path]
 			if !ok {
 				http.Error(w, "missing", http.StatusNotFound)
@@ -83,6 +116,277 @@ func newBelegStub(t *testing.T) *belegStub {
 	}))
 	t.Cleanup(stub.server.Close)
 	return stub
+}
+
+func TestEingangsrechnungUpdateSendsOnlyRequestedFieldsAsEpochMillis(t *testing.T) {
+	stub := newBelegStub(t)
+	stub.belegByPath["/rest/incominginvoice/2026-1"] = map[string]any{
+		"number":          "2026-1",
+		"documentNumber":  "INV-OLD",
+		"vendorContactId": nil,
+		"documentDate":    1767225600000.0,
+		"dueDate":         1771027200000.0,
+		"text1":           "old text",
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	withCLI(t, "", false)
+
+	err := run([]string{
+		"--config", configPath,
+		"eingangsrechnung", "update", "2026-1",
+		"--vendor-contact-id=49198",
+		"--document-number=INV-NEW",
+		"--document-date=2026-04-01",
+		"--due-date=2026-05-01",
+		"--delivery-date-from=2026-04-01",
+		"--delivery-date-to=2026-04-30",
+		"--text=Repariert nach Posteingang",
+		"--yes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stub.updateBodies) != 1 || len(stub.updatePaths) != 1 {
+		t.Fatalf("update requests = %d (%v)", len(stub.updateBodies), stub.updatePaths)
+	}
+	if stub.updatePaths[0] != "/rest/incominginvoice/2026-1" {
+		t.Fatalf("update path = %q", stub.updatePaths[0])
+	}
+	body := stub.updateBodies[0]
+	if len(body) != 7 {
+		t.Fatalf("update body should carry only the 7 requested fields: %#v", body)
+	}
+	want := map[string]any{
+		"vendorContactId":  49198.0,
+		"documentNumber":   "INV-NEW",
+		"documentDate":     1775001600000.0,
+		"dueDate":          1777593600000.0,
+		"deliveryDateFrom": 1775001600000.0,
+		"deliveryDateTo":   1777507200000.0,
+		"text1":            "Repariert nach Posteingang",
+	}
+	for field, expected := range want {
+		if body[field] != expected {
+			t.Fatalf("body[%q] = %#v, want %#v", field, body[field], expected)
+		}
+	}
+}
+
+func TestEingangsrechnungUpdateAppliesVendorContactIDChange(t *testing.T) {
+	stub := newBelegStub(t)
+	stub.belegByPath["/rest/incominginvoice/2026-1"] = map[string]any{
+		"number":          "2026-1",
+		"vendorContactId": 49199.0,
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	err := run([]string{
+		"--config", configPath,
+		"eingangsrechnung", "update", "2026-1",
+		"--vendor-contact-id=49198",
+		"--yes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(stub.updateBodies) != 1 {
+		t.Fatalf("update requests = %d", len(stub.updateBodies))
+	}
+	if stub.updateBodies[0]["vendorContactId"] != 49198.0 {
+		t.Fatalf("body = %#v", stub.updateBodies[0])
+	}
+	status := stdoutStatus(t, output.String())
+	if status["status"] != "updated" {
+		t.Fatalf("status = %v", status["status"])
+	}
+	if got := stub.belegByPath["/rest/incominginvoice/2026-1"]["vendorContactId"]; got != 49198.0 {
+		t.Fatalf("vendorContactId after update = %#v", got)
+	}
+}
+
+func TestEingangsrechnungUpdateAlreadyUpToDateSendsNoWrite(t *testing.T) {
+	stub := newBelegStub(t)
+	stub.belegByPath["/rest/incominginvoice/2026-1"] = map[string]any{
+		"number":          "2026-1",
+		"vendorContactId": 49198.0,
+		"documentNumber":  "INV-1",
+		"documentDate":    1775001600000.0,
+		"text1":           "same text",
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	err := run([]string{
+		"--config", configPath,
+		"eingangsrechnung", "update", "2026-1",
+		"--vendor-contact-id=49198",
+		"--document-number=INV-1",
+		"--document-date=2026-04-01",
+		"--text=same text",
+		"--yes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(stub.updateBodies) != 0 {
+		t.Fatalf("update requests = %d; already up to date must not write", len(stub.updateBodies))
+	}
+	status := stdoutStatus(t, output.String())
+	if status["status"] != "already_up_to_date" {
+		t.Fatalf("status = %v", status["status"])
+	}
+}
+
+func TestEingangsrechnungUpdateDryRunWritesNothing(t *testing.T) {
+	stub := newBelegStub(t)
+	stub.belegByPath["/rest/incominginvoice/2026-1"] = map[string]any{
+		"number":       "2026-1",
+		"documentDate": 0.0,
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, stderr := withCLI(t, "", false)
+
+	err := run([]string{
+		"--config", configPath,
+		"eingangsrechnung", "update", "2026-1",
+		"--document-date=2026-04-01",
+		"--dry-run",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(stub.updateBodies) != 0 {
+		t.Fatalf("dry-run must not write; got %d requests", len(stub.updateBodies))
+	}
+	status := stdoutStatus(t, output.String())
+	if status["status"] != "dry_run" {
+		t.Fatalf("status = %v", status["status"])
+	}
+	if !strings.Contains(stderr.String(), "/incominginvoice/2026-1") {
+		t.Fatalf("preview missing endpoint: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "1775001600000") {
+		t.Fatalf("preview missing epoch payload: %q", stderr.String())
+	}
+}
+
+func TestEingangsrechnungUpdateRequiresTTYOrYes(t *testing.T) {
+	stub := newBelegStub(t)
+	stub.belegByPath["/rest/incominginvoice/2026-1"] = map[string]any{
+		"number":       "2026-1",
+		"documentDate": 0.0,
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	withCLI(t, "", false)
+
+	err := run([]string{
+		"--config", configPath,
+		"eingangsrechnung", "update", "2026-1",
+		"--document-date=2026-04-01",
+	})
+	if err == nil || !strings.Contains(err.Error(), "TTY or --yes") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(stub.updateBodies) != 0 {
+		t.Fatalf("no write may happen before confirmation; got %d requests", len(stub.updateBodies))
+	}
+}
+
+func TestEingangsrechnungUpdateRoundTripsProviderBerlinDate(t *testing.T) {
+	stub := newBelegStub(t)
+	// Provider anchored the same day at Europe/Berlin midnight:
+	// 2026-04-01T00:00:00+02:00 = 1774994400000, while the CLI sends
+	// UTC-midnight 1775001600000. Both are calendar day 2026-04-01.
+	stub.belegByPath["/rest/incominginvoice/2026-1"] = map[string]any{
+		"number":       "2026-1",
+		"documentDate": 1774994400000.0,
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	err := run([]string{
+		"--config", configPath,
+		"eingangsrechnung", "update", "2026-1",
+		"--document-date=2026-04-01",
+		"--text=any change",
+		"--yes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if stub.belegByPath["/rest/incominginvoice/2026-1"]["documentDate"] != 1775001600000.0 {
+		t.Fatalf("documentDate after update = %#v", stub.belegByPath["/rest/incominginvoice/2026-1"]["documentDate"])
+	}
+	status := stdoutStatus(t, output.String())
+	if status["status"] != "updated" {
+		t.Fatalf("status = %v (%#v)", status["status"], status)
+	}
+}
+
+func TestEingangsrechnungUpdateReportsVerificationRequiredWhenFieldNotApplied(t *testing.T) {
+	stub := newBelegStub(t)
+	stub.belegByPath["/rest/incominginvoice/2026-1"] = map[string]any{
+		"number":       "2026-1",
+		"documentDate": 0.0,
+	}
+	stub.applyUpdate = false // provider accepts the write but does not apply it
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	err := run([]string{
+		"--config", configPath,
+		"eingangsrechnung", "update", "2026-1",
+		"--document-date=2026-04-01",
+		"--yes",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	status := stdoutStatus(t, output.String())
+	if status["status"] != "verification_required" {
+		t.Fatalf("status = %v", status["status"])
+	}
+	if !strings.Contains(err.Error(), "documentDate") {
+		t.Fatalf("error should name the unapplied field: %v", err)
+	}
+}
+
+func TestEingangsrechnungUpdateRejectsInvalidDateAndMissingFlags(t *testing.T) {
+	stub := newBelegStub(t)
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	withCLI(t, "", false)
+
+	err := run([]string{"--config", configPath, "eingangsrechnung", "update", "2026-1", "--document-date=04/01/2026", "--yes"})
+	if err == nil || !strings.Contains(err.Error(), "YYYY-MM-DD") {
+		t.Fatalf("error = %v", err)
+	}
+	err = run([]string{"--config", configPath, "eingangsrechnung", "update", "2026-1", "--yes"})
+	if err == nil || !strings.Contains(err.Error(), "at least one field flag") {
+		t.Fatalf("error = %v", err)
+	}
+	err = run([]string{"--config", configPath, "eingangsrechnung", "update", "--vendor-contact-id=1", "--yes"})
+	if err == nil || !strings.Contains(err.Error(), "exactly one idOrNumber") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(stub.updateBodies) != 0 || stub.belegGets != 0 {
+		t.Fatalf("requests made: updates=%d gets=%d", len(stub.updateBodies), stub.belegGets)
+	}
+}
+
+func TestGutschriftRejectsUpdateSubcommand(t *testing.T) {
+	stub := newBelegStub(t)
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	withCLI(t, "", false)
+
+	err := run([]string{"--config", configPath, "gutschrift", "update", "GS-1", "--text=x", "--yes"})
+	if err == nil || !strings.Contains(err.Error(), "unknown gutschrift command: update") {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 func TestEingangsrechnungSearchPostsExpectedConditions(t *testing.T) {

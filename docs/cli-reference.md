@@ -136,15 +136,29 @@ Inspect payment terms and VAT configuration.
 - `sv-cli steuersachverhalt list`
   List Steuersachverhalte.
 
-### `eingangsrechnung` / `gutschrift`
+### `eingangsrechnung`
 
-Search and inspect vendor-side Belege with stitched Kontakt data.
+Search, inspect, and repair vendor-side Belege with stitched Kontakt data.
 
 - `sv-cli eingangsrechnung search [filters] [--all]` / `sv-cli gutschrift search [filters] [--all]`
   Search for Eingangsrechnungen or Gutschriften.
   Filters: `--document-number`, `--vendor-name`, `--content-state`, `--payment-state`, `--posting-state`.
 - `sv-cli eingangsrechnung show <Belegnummer>` / `sv-cli gutschrift show <Belegnummer>`
   Show the Beleg and its associated Kontakt when one can be resolved.
+- `sv-cli eingangsrechnung update <idOrNumber> [flags] [--dry-run] [--yes]`
+  Repair an unverified Eingangsrechnung via `POST /incominginvoice/{id}`.
+  Flags: `--vendor-contact-id=N`, `--document-number=VALUE`,
+  `--document-date=YYYY-MM-DD`, `--due-date=YYYY-MM-DD`,
+  `--delivery-date-from=YYYY-MM-DD`, `--delivery-date-to=YYYY-MM-DD`,
+  `--text=VALUE` (Belegtext). Only the flags you pass are sent; all other
+  Beleg fields are left untouched. Dates given as ISO calendar days are sent
+  as epoch milliseconds. When every requested change is already present, the
+  command reports `already_up_to_date` and writes nothing. The command
+  previews the canonical payload on stderr, requires `--yes` or the
+  interactive phrase `update <idOrNumber>` in a TTY, sends the write exactly
+  once, and reads the Beleg back before reporting `updated`. Stdout statuses:
+  `dry_run`, `updated`, `already_up_to_date`, `verification_required`;
+  everything except `updated`/`already_up_to_date` exits non-zero.
 
 ### `offene-posten`
 

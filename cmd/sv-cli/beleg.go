@@ -54,7 +54,11 @@ func gutschrift(client *scopeskill.Client, args []string) error {
 
 func beleg(client *scopeskill.Client, kind belegKind, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintf(cliOutput, "%s subcommands: search show\n", kind.command)
+		subcommands := "search show"
+		if kind.command == eingangsrechnungKind.command {
+			subcommands = "search show update"
+		}
+		fmt.Fprintf(cliOutput, "%s subcommands: %s\n", kind.command, subcommands)
 		return fmt.Errorf("missing %s subcommand", kind.command)
 	}
 	switch args[0] {
@@ -62,6 +66,11 @@ func beleg(client *scopeskill.Client, kind belegKind, args []string) error {
 		return belegSearch(client, kind, args[1:])
 	case "show":
 		return belegShow(client, kind, args[1:])
+	case "update":
+		if kind.command != eingangsrechnungKind.command {
+			return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
+		}
+		return eingangsrechnungUpdate(client, args[1:])
 	default:
 		return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
 	}

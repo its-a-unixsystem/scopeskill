@@ -52,6 +52,7 @@ Follow this escalation pattern when interacting with Scopevisio:
 | Attach a Beleg to a Buchung             | `buchung file add <nr> <file> --dry-run`, then `--yes` | Only after matching the reviewed file to the exact documentNumber |
 | Retrieve a Buchung's Beleg              | `buchung file get <nr> [--with-stamp]`   | Reading the attached original or its stamped rendering             |
 | View an incoming invoice                | `eingangsrechnung show`                  | Investigating vendor-side Belege (documents)                        |
+| Repair an incoming invoice's vendor or dates | `eingangsrechnung update <id> --dry-run`, then `--yes` | Fixing a missing `vendorContactId` or implausible `documentDate` on an unverified Beleg |
 | Fetch accounting metadata               | `buchhaltung info` / `dimension search`  | Need context on how the system is configured                        |
 | Browse Teamworkbridge collections       | `get /teamworkbridge/collections`        | Navigating the remote CenterDevice document tree                    |
 | Upload a local file to Teamwork         | `teamwork upload <file>`                 | Pushing a file, optionally to a specific `--collection`             |
@@ -121,6 +122,15 @@ sv-cli eingangsrechnung search --document-number="INV-1234"
 # 2. Fetch the full details using the internal ID
 sv-cli get /incominginvoice/<id>
 ```
+
+Repairing an Eingangsrechnung is a write operation: run `eingangsrechnung
+update <idOrNumber> --vendor-contact-id=N --document-date=YYYY-MM-DD ...`
+first with `--dry-run`, show the preview to the user, and re-run with `--yes`
+only after approval. Only the flags you pass are sent; ISO dates are converted
+to epoch milliseconds automatically. The command refuses to write when the
+Beleg already carries every requested value (`already_up_to_date`), so a
+retried repair is safe. Updates are only possible before the Beleg is
+verified.
 
 ## Teamworkbridge Integration
 

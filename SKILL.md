@@ -44,6 +44,7 @@ Follow this escalation pattern when interacting with Scopevisio:
 | Find a contact/customer/vendor          | `kontakt search`                         | You need the Kontakt ID to query linked personal accounts           |
 | Create a missing Kontakt               | `kontakt create --name=... --dry-run`, then `--yes` | Adding reviewed master data before a personal account |
 | Create a Debitor or Kreditor            | `debitor create` / `kreditor create --contact-id=N --dry-run`, then `--yes` | Linking a reviewed Kontakt to the required account side |
+| Update a Debitor or Kreditor            | `debitor update` / `kreditor update <nr> --file=changes.json --dry-run`, then `--yes` | Correcting reviewed Personenkonto master data |
 | Check a specific impersonal account     | `sachkonto show` / `balance`             | Investigating G/L (General Ledger) accounts                         |
 | Check a customer/vendor account         | `debitor show` / `kreditor show`         | Investigating personal accounts linked to a Kontakt                 |
 | Find open invoices/vouchers             | `offene-posten list --seite=...`         | Looking for unsettled items on either the debitor or kreditor side  |
@@ -80,6 +81,13 @@ assign the first available account number from its configured Nummernkreis;
 use `--number-range=N` when the Unternehmen has multiple Kreditor
 Nummernkreise. Never combine these primitives into an implicit create-both
 operation.
+
+Updating a Debitor or Kreditor is a separate write operation. Put only the
+reviewed modifications in one JSON object, preview them with `debitor update
+<nr> --file=changes.json --dry-run` or the matching `kreditor` command, and
+repeat with `--yes` only after approval. The command accepts no individual
+property flags, sends the write once, and reads the updated Personenkonto back
+before reporting success.
 
 ### Balances and Open Items
 Check balances and unsettled items. You must specify `--seite=debitor` or `--seite=kreditor` for open items:

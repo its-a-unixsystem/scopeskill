@@ -17,6 +17,7 @@ var dimensionSearchCommand = searchEndpointCommand{
 
 func dimension(client *scopeskill.Client, args []string) error {
 	if len(args) == 0 {
+		fmt.Fprintln(cliOutput, "dimension subcommands: search entries entry")
 		return errors.New("missing dimension subcommand")
 	}
 	switch args[0] {
@@ -57,7 +58,7 @@ func dimensionEntryWrite(client *scopeskill.Client, args []string, operation str
 	}
 	payload := map[string]any{"number": *number, "name": *entryName, "locked": false}
 	path := "/dimensions/" + url.PathEscape(flags.Arg(0)) + suffix
-	req := writeRequest{Command: "dimension entry " + operation, Method: http.MethodPost, Path: path, Payload: payload, ConfirmPhrase: operation + " dimension entry"}
+	req := writeRequest{Command: "dimension entry " + operation, Method: http.MethodPost, Path: path, Payload: payload, ConfirmPhrase: fmt.Sprintf("%s dimension entry %s/%d", operation, flags.Arg(0), *number)}
 	writePreview(client, req)
 	if *dryRun {
 		return printJSON(map[string]any{"status": "dry_run", "endpoint": "POST " + path, "request": payload})

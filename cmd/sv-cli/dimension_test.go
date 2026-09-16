@@ -35,6 +35,13 @@ func newDimensionStub(t *testing.T) *dimensionStub {
 		case "/rest/dimensions/Kostenstellen/dimensionentries":
 			stub.hits = append(stub.hits, r.Method+" "+r.URL.RequestURI())
 			writeJSONForCLI(w, map[string]any{"records": []any{map[string]any{"number": "K100"}}})
+		case "/rest/dimensions/Kostenstellen/dimensionentry/new", "/rest/dimensions/Kostenstellen/dimensionentry":
+			stub.hits = append(stub.hits, r.Method+" "+r.URL.RequestURI())
+			raw, _ := io.ReadAll(r.Body)
+			var body map[string]any
+			_ = json.Unmarshal(raw, &body)
+			stub.bodies = append(stub.bodies, body)
+			writeJSONForCLI(w, map[string]any{"ok": true})
 		case "/rest/texttemplates":
 			stub.hits = append(stub.hits, r.Method+" "+r.URL.RequestURI())
 			writeJSONForCLI(w, map[string]any{"records": []any{map[string]any{"name": "Mahnung"}}})
@@ -74,6 +81,33 @@ func TestDimensionAndTextbausteinCommandsFetchExpectedEndpoints(t *testing.T) {
 			var got any
 			if err := json.Unmarshal(output.Bytes(), &got); err != nil {
 				t.Fatalf("stdout JSON: %v: %s", err, output.String())
+			}
+		})
+	}
+}
+
+func TestDimensionEntryCommandsPostExpectedEndpoints(t *testing.T) {
+	for _, tc := range []struct {
+		name, operation, endpoint string
+	}{
+		{"create", "create", "/rest/dimensions/Kostenstellen/dimensionentry/new"},
+		{"update", "update", "/rest/dimensions/Kostenstellen/dimensionentry"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := newDimensionStub(t)
+			configPath := sachkontoConfigPath(t, stub.server.URL)
+			output, _ := withCLI(t, "", false)
+			if err := run([]string{"--config", configPath, "dimension", "entry", tc.operation, "Kostenstellen", "--number=100", "--name=IT", "--yes"}); err != nil {
+				t.Fatal(err)
+			}
+			if len(stub.hits) != 1 || stub.hits[0] != "POST "+tc.endpoint {
+				t.Fatalf("hits = %#v, want POST %s", stub.hits, tc.endpoint)
+			}
+			if len(stub.bodies) != 1 || stub.bodies[0]["number"] != float64(100) || stub.bodies[0]["name"] != "IT" {
+				t.Fatalf("bodies = %#v", stub.bodies)
+			}
+			if output.Len() == 0 {
+				t.Fatal("expected command output")
 			}
 		})
 	}

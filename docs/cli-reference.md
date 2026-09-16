@@ -165,6 +165,11 @@ Inspect dimension metadata and text templates.
   Search dimensions.
 - `sv-cli dimension entries <dimension> [--page=N] [--page-size=N]`
   Fetch entries for one dimension by name or number.
+
+- `sv-cli dimension entry create <dimension> --number=NNN --name=STRING [--dry-run] [--yes]`
+  Create a dimension entry.
+- `sv-cli dimension entry update <dimension> --number=NNN --name=STRING [--dry-run] [--yes]`
+  Update a dimension entry name.
 - `sv-cli textbaustein list`
   List Textbausteine.
 

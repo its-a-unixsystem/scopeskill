@@ -240,6 +240,45 @@ func TestBuchungCreateDryRun(t *testing.T) {
 	}
 }
 
+func TestBuchungCreateDryRunAcceptsPersonalAccountsWithoutActiveField(t *testing.T) {
+	cases := []struct {
+		name   string
+		number string
+		add    func(*postingStub, string)
+	}{
+		{"debitor", "10001", func(stub *postingStub, number string) {
+			stub.debitoren[number] = map[string]any{"number": number, "name": "Kunde", "contactId": 1}
+		}},
+		{"kreditor", "70001", func(stub *postingStub, number string) {
+			stub.kreditoren[number] = map[string]any{"number": number, "name": "Lieferant", "contactId": 2}
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := newHappyPostingStub(t)
+			stub.sachkonten["3300"] = map[string]any{"number": "3300", "name": "Sammelkonto", "active": true}
+			tc.add(stub, tc.number)
+			configPath := postingConfigPath(t, stub.server.URL)
+			dataPath := postingFixture(t, postingInput([]any{
+				map[string]any{"account": tc.number, "summaryAccount": "3300", "amount": 10.00},
+				map[string]any{"account": "1200", "amount": -10.00},
+			}))
+			output, _ := withCLI(t, "", false)
+
+			if err := run([]string{"--config", configPath, "buchung", "create", "--data", "@" + dataPath, "--dry-run"}); err != nil {
+				t.Fatal(err)
+			}
+			if got := stdoutStatus(t, output.String()); got["status"] != "dry_run" {
+				t.Fatalf("stdout = %s", output.String())
+			}
+			if stub.writeCount() != 0 {
+				t.Fatalf("writes = %d", stub.writeCount())
+			}
+		})
+	}
+}
+
 func matchingJournalRows() []any {
 	return matchingJournalRowsFor("P-2025-1")
 }

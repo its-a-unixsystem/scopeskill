@@ -43,10 +43,10 @@ var (
 	}
 )
 
-var personalAccountSearchDefaultFields = []string{"number", "name", "active", "contactId"}
+var personalAccountSearchDefaultFields = []string{"number", "name", "contactId"}
 
 var personalAccountReadbackFields = []string{
-	"number", "name", "active", "contactId",
+	"number", "name", "contactId",
 	"externalNumber", "sumAccountNumber", "numberRangeNumber", "group",
 	"vatCode", "paymentType", "vatNumber", "vatId", "currency", "language",
 	"paymentTermId", "paymentTermForm",
@@ -346,7 +346,6 @@ Filters:
   --name=SUBSTRING        linked Kontakt lastname contains
   --number=NUMBER         Kontonummer equals
   --number-prefix=PREFIX  Kontonummer starts with
-  --active                only active Konten
 
 Pagination:
   default                 single page at pageSize=100
@@ -368,7 +367,6 @@ func personalAccountSearch(client *scopeskill.Client, kind personalAccountKind, 
 	name := flags.String("name", "", "filter: linked Kontakt lastname contains substring")
 	number := flags.String("number", "", "filter: Kontonummer equals")
 	numberPrefix := flags.String("number-prefix", "", "filter: Kontonummer starts with prefix")
-	activeOnly := flags.Bool("active", false, "filter: active = true")
 	data := flags.String("data", "", "JSON body, or @path/to/file.json (full override)")
 	all := flags.Bool("all", false, "page through all results")
 	pageSize := flags.Int("page-size", 0, "page size for the single-page request (default 100)")
@@ -390,10 +388,6 @@ func personalAccountSearch(client *scopeskill.Client, kind personalAccountKind, 
 	if *max < 0 {
 		return errors.New("--max must be non-negative")
 	}
-	if *name != "" && *activeOnly {
-		return errors.New("--name cannot be combined with --active because linked Kontakt search does not expose account active state")
-	}
-
 	if *data != "" {
 		body, err := loadJSONObject(*data)
 		if err != nil {
@@ -424,12 +418,6 @@ func personalAccountSearch(client *scopeskill.Client, kind personalAccountKind, 
 			Field: "number", Operator: scopeskill.OpStartsWith, Value: *numberPrefix,
 		})
 	}
-	if *activeOnly {
-		base.Conditions = append(base.Conditions, scopeskill.SearchCondition{
-			Field: "active", Operator: scopeskill.OpEquals, Value: true,
-		})
-	}
-
 	records, err := paginatePersonalAccountSearch(client, kind.searchEndpoint, base, *all, *pageSize, *max)
 	if err != nil {
 		return err

@@ -49,6 +49,8 @@ Follow this escalation pattern when interacting with Scopevisio:
 | Search chronological postings           | `journal search`                         | You need to see the ledger entries (Buchungen)                      |
 | Create one reviewed Buchung             | `buchung create --data @f --dry-run`, then `--yes`  | Only from an approved Buchungssatz; never invent accounts/tax keys   |
 | Cancel one reviewed Buchung             | `buchung cancel <nr> --dry-run`, then `--yes`       | Only after the user approved cancelling this exact documentNumber     |
+| Attach a Beleg to a Buchung             | `buchung file add <nr> <file> --dry-run`, then `--yes` | Only after matching the reviewed file to the exact documentNumber |
+| Retrieve a Buchung's Beleg              | `buchung file get <nr> [--with-stamp]`   | Reading the attached original or its stamped rendering             |
 | View an incoming invoice                | `eingangsrechnung show`                  | Investigating vendor-side Belege (documents)                        |
 | Fetch accounting metadata               | `buchhaltung info` / `dimension search`  | Need context on how the system is configured                        |
 | Browse Teamworkbridge collections       | `get /teamworkbridge/collections`        | Navigating the remote CenterDevice document tree                    |
@@ -97,6 +99,12 @@ controlled live contract test. Never call `/postings/correction` (or any raw
 endpoint) to cancel or correct a Buchung, and never improvise a replacement by
 chaining `buchung cancel` and `buchung create` automatically — issue each
 step separately and only after its own confirmation.
+
+Attaching a Beleg is also a write operation. Run `buchung file add <nr> <file>
+--dry-run`, inspect the filename and base64 payload preview, and re-run with
+`--yes` only after confirming the exact Buchung and file. Retrieve the original
+with `buchung file get <nr>` or add `--with-stamp` for the invoice-stamped
+rendering. Use `--out` only when the provider response filename is unsuitable.
 
 ### Belege (Invoices & Credits)
 Search for specific documents or filter by workflow state. Note that workflow states are integers (e.g., `0` = Unbearbeitet):

@@ -113,7 +113,7 @@ A single posting in the **Journal**: at minimum a Soll/Haben pair on Konten with
 _Avoid_: Posting line, journal entry
 
 **Journal**:
-The chronological sequence of all **Buchungen** for a Fiskaljahr; queried through the **`sv-cli`**; mutated only by the explicit `buchung create` and `buchung cancel` write paths.
+The chronological sequence of all **Buchungen** for a Fiskaljahr; queried through the **`sv-cli`**; changed only by the explicit `buchung create`, `buchung cancel`, and `buchung file add` write paths.
 _Avoid_: Ledger
 
 **Storno**:
@@ -197,6 +197,7 @@ _Avoid_: Open invoices, OPs
 - No `SCOPESKILL_*` environment override is exposed for **Unternehmen** attributes such as `SKR`, because they pair with `CUSTOMER` and `REST_REFRESH_TOKEN`; switch identity wholesale via `--config` (consistent with ADR-0004).
 - A **Debitor** and a **Kreditor** each link to exactly one **Kontakt**; a **Sachkonto** does not.
 - A **Buchung** belongs to exactly one **Journal** (per Fiskaljahr) and references one or more Konten (Sachkonto, Debitor, or Kreditor).
+- A **Buchung** can have one attached **Beleg** file. `buchung file add` attaches a **Local file**; `buchung file get` retrieves it with optional invoice stamps.
 - An **Offene Posten** entry references the **Beleg** that originated it and the **Kontakt** owning the **Debitor** or **Kreditor** side.
 - The **`sv-cli`** stitches data on `show`-style commands when the second piece is reliably co-requested, but never on list-style commands (N+1 risk) and never derives business answers (see ADR-0006).
 

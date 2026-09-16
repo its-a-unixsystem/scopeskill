@@ -100,6 +100,10 @@ _Avoid_: G/L account, ledger account when speaking with users
 The Scopevisio master-directory entity (`/contacts`) that owns identifying details (name, address, USt-ID) for both **Debitor** and **Kreditor** accounts.
 _Avoid_: Customer, supplier when only the linked party is meant
 
+**Personenkonto**:
+A subledger account linked to exactly one **Kontakt**, either as a **Debitor** or a **Kreditor**.
+_Avoid_: Subledger account
+
 **Debitor**:
 An accounts-receivable Konto attached to exactly one **Kontakt**, receiving postings for customer-side transactions.
 _Avoid_: Customer account when the **Kontakt** is meant
@@ -129,8 +133,12 @@ A single posting in the **Journal**: at minimum a Soll/Haben pair on Konten with
 _Avoid_: Posting line, journal entry
 
 **Journal**:
-The chronological sequence of all **Buchungen** for a Fiskaljahr; queried through the **`sv-cli`**; changed only by the explicit `buchung create`, `buchung cancel`, and `buchung file add` write paths.
-_Avoid_: Ledger
+The chronological sequence of general, impersonal ledger postings for a Fiskaljahr, queried through `sv-cli journal search` (`/journal`); postings touching customer or supplier accounts appear here only via aggregate **Sammelkonto** rows.
+_Avoid_: Ledger, Sachjournal, general ledger
+
+**Personenjournal**:
+The chronological sequence of subledger postings on **Personenkonten** for a Fiskaljahr, queried through `sv-cli personenkonto journal` (`/personaljournal`), containing the customer and supplier contra rows.
+_Avoid_: Personal journal, subledger journal
 
 **Storno**:
 A cancellation **Buchung** that reverses an original **Buchung**: the provider links it to the original, and its rows are an exact sign reversal of the original's rows (same accounts, posting date, and document numbers, negated amounts). An original **Buchung** has at most one **Storno**.
@@ -211,10 +219,13 @@ _Avoid_: Open invoices, OPs
 - An **Unternehmen probe** runs during **Auth login** after token exchange and writes its result (e.g. `SKR`) to **scopeskill config**; re-running **Auth login** re-probes and overwrites the stored value.
 - The first **Unternehmen probe** is **SKR** detection, which queries `/impersonalaccounts` for `4400` (→ `SKR04`) and `8400` (→ `SKR03`), falling back to a TTY prompt when the chart is custom.
 - No `SCOPESKILL_*` environment override is exposed for **Unternehmen** attributes such as `SKR`, because they pair with `CUSTOMER` and `REST_REFRESH_TOKEN`; switch identity wholesale via `--config` (consistent with ADR-0004).
+- A **Personenkonto** is either a **Debitor** or a **Kreditor** linked to a **Kontakt**.
 - A **Debitor** and a **Kreditor** each link to exactly one **Kontakt**; a **Sachkonto** does not.
 - A **Debitor** or **Kreditor** is assigned a **Sammelkonto** (**Sachkonto**) where aggregate subledger balances accumulate in the general ledger.
 - A **Debitor** or **Kreditor** account number is assigned either explicitly or generated automatically from a configured **Nummernkreis**.
 - A **Buchung** belongs to exactly one **Journal** (per Fiskaljahr) and references one or more Konten (Sachkonto, Debitor, or Kreditor).
+- A **Buchung** touching a **Personenkonto** is exposed through three distinct Scopevisio views: impersonal rows in the **Journal** (booked against the **Sammelkonto**), subledger contra rows in the **Personenjournal**, and settlement tracking in **Offene Posten**.
+- `sv-cli journal search` queries the **Journal** and returns only impersonal rows; it does not return **Personenkonto** rows when **Sammelkonten** are used. Subledger contra rows must be queried via `sv-cli personenkonto journal`, and open balances via `sv-cli offene-posten list`.
 - A **Buchung** can have one attached **Beleg** file. `buchung file add` attaches a **Local file**; `buchung file get` retrieves it with optional invoice stamps.
 - An **Offene Posten** entry references the **Beleg** that originated it and the **Kontakt** owning the **Debitor** or **Kreditor** side.
 - The **`sv-cli`** stitches data on `show`-style commands when the second piece is reliably co-requested, but never on list-style commands (N+1 risk) and never derives business answers (see ADR-0006).
@@ -240,3 +251,4 @@ _Avoid_: Open invoices, OPs
 - Environment override names were initially described with a `SCOPEVISIO_` prefix. Resolved: use `SCOPESKILL_*` because the variables belong to this helper, not the Scopevisio product.
 - "doc" and "file" were used casually for Teamworkbridge content. Resolved: use **Teamwork document** for the remote CenterDevice object and **Local file** for bytes on disk.
 - Teamwork upload/download command grouping. Resolved: hybrid. Generic `download <path>` stays top-level (it is just a binary GET); Teamwork-specific operations with bespoke flags (currently only multipart upload) live under `teamwork ...`.
+- `journal search` was assumed to return all sides of a posting. Resolved: Scopevisio separates general impersonal rows (`/journal`) from personal subledger contra rows (`/personaljournal`) and settlement state (`/openitems/...`). Postings against a **Personenkonto** appear in the **Journal** only as aggregate rows on the **Sammelkonto**.

@@ -78,7 +78,7 @@ const journalSearchUsage = `usage: sv-cli journal search [filters] [--all] [--ma
 Filters:
   --from=YYYY-MM-DD        postingDate on or after date
   --to=YYYY-MM-DD          postingDate on or before date
-  --konto=NUMBER           accountNumber equals
+  --konto=NUMBER           accountNumber equals (Sachkonto only)
   --text=SUBSTRING         postingText contains
   --belegnr=NUMBER         documentNumber equals
   --amount-min=AMOUNT      amount greater than or equal
@@ -102,7 +102,12 @@ Escape hatch:
                            --page-size, or --max.
 
 Output is JSON on stdout: an array of records (or the raw API response when
---data is used).`
+--data is used).
+
+Note: journal search returns only impersonal rows on Sachkonten, including
+Sammelkonto rows. Use 'sv-cli personenkonto journal' for Personenjournal rows
+and 'sv-cli offene-posten list --seite=debitor|kreditor' for settlement state
+and remaining amounts.`
 
 func journalSearch(client *scopeskill.Client, args []string) error {
 	flags := flag.NewFlagSet("journal search", flag.ContinueOnError)

@@ -49,6 +49,7 @@ Follow this escalation pattern when interacting with Scopevisio:
 | Find open invoices/vouchers             | `offene-posten list --seite=...`         | Looking for unsettled items on either the debitor or kreditor side  |
 | Clear reviewed creditor open items      | `offene-posten clear --seite=kreditor --data @f --dry-run`, then `--yes` | Only from an approved payment-to-Beleg mapping |
 | Search chronological postings           | `journal search`                         | You need to see the ledger entries (Buchungen)                      |
+| Search Personenjournal postings         | `personenkonto journal`                  | You need to see postings for a Debitor or Kreditor in the Personenjournal |
 | Create one reviewed Buchung             | `buchung create --data @f --dry-run`, then `--yes`  | Only from an approved Buchungssatz; never invent accounts/tax keys   |
 | Cancel one reviewed Buchung             | `buchung cancel <nr> --dry-run`, then `--yes`       | Only after the user approved cancelling this exact documentNumber     |
 | Attach a Beleg to a Buchung             | `buchung file add <nr> <file> --dry-run`, then `--yes` | Only after matching the reviewed file to the exact documentNumber |
@@ -100,10 +101,18 @@ currency, and balances, sends at most one request, and reads every affected
 balance back.
 
 ### Ledger Postings (Journal)
-Search for specific postings by account or amount:
+Search for specific postings by Sachkonto or amount:
 ```bash
-sv-cli journal search --konto=70019 --amount-min=100.00 --all
+sv-cli journal search --konto=4400 --amount-min=100.00 --all
 ```
+
+> **Important:** A Buchung touching a Personenkonto has three distinct views.
+> `sv-cli journal search` returns only the impersonal rows on Sachkonten,
+> including aggregate Sammelkonto rows. Use `sv-cli personenkonto journal` for
+> the contra rows in the Personenjournal on Debitor or Kreditor accounts, and
+> `sv-cli offene-posten list --seite=debitor|kreditor` for settlement state and
+> each item's remaining amount. `journal search` alone is not the complete
+> Buchung.
 
 Cancelling a Buchung is a write operation: always run `buchung cancel <nr>
 --dry-run` first, show the preview to the user, and only re-run with `--yes`

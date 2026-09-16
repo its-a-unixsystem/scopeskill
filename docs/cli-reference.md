@@ -111,10 +111,14 @@ Search and inspect personal accounts linked to a Kontakt.
 
 ### `personenkonto`
 
-Search Journal entries across personal accounts.
+Search entries in the Personenjournal across Personenkonten.
 
 - `sv-cli personenkonto journal [--all]`
-  Search personal Journal entries.
+  Search entries in the Personenjournal. These are the contra rows on Debitor
+  and Kreditor accounts. Use `journal search` for the corresponding
+  impersonal rows on Sachkonten and Sammelkonten, and
+  `offene-posten list --seite=debitor|kreditor` for settlement state and
+  remaining amounts.
 
 ### `buchhaltung`
 
@@ -226,8 +230,14 @@ List, inspect, and clear unsettled Belege (Offene Posten).
 Search chronological postings (Buchungen).
 
 - `sv-cli journal search [filters] [--all]`
-  Search the ledger for postings.
-  Filters: `--from`, `--to`, `--konto`, `--text`, `--belegnr`, `--amount-min`, `--amount-max`, `--dim=KEY=VALUE`.
+  Search the Journal's impersonal rows. A Buchung touching a Debitor or
+  Kreditor appears here only through its aggregate Sammelkonto row; the contra
+  row is in the Personenjournal, queried with `personenkonto journal`. Use
+  `offene-posten list --seite=debitor|kreditor` for settlement state and the
+  remaining amount of each item. `journal search` alone does not return the
+  complete Buchung.
+  Filters: `--from`, `--to`, `--konto` (Sachkonto only), `--text`, `--belegnr`,
+  `--amount-min`, `--amount-max`, `--dim=KEY=VALUE`.
 - `sv-cli buchung show <documentNumber>`
   Show a specific booking by its documentNumber.
 - `sv-cli buchung create --data @buchung.json [--dry-run] [--yes]`

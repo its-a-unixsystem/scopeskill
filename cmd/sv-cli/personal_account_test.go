@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,8 @@ type personalAccountStub struct {
 	server             *httptest.Server
 	accountBodies      map[string][]map[string]any
 	accountRecords     map[string][]any
+	createBodies       map[string][]map[string]any
+	createResponses    map[string]map[string]any
 	bankConnections    map[string]any
 	bankConnectionHits []string
 	contactBodies      []map[string]any
@@ -31,6 +34,8 @@ func newPersonalAccountStub(t *testing.T) *personalAccountStub {
 	stub := &personalAccountStub{
 		accountBodies:   map[string][]map[string]any{},
 		accountRecords:  map[string][]any{},
+		createBodies:    map[string][]map[string]any{},
+		createResponses: map[string]map[string]any{},
 		bankConnections: map[string]any{},
 		contactByID:     map[string]map[string]any{},
 		susaQueries:     map[string][]url.Values{},
@@ -54,6 +59,22 @@ func newPersonalAccountStub(t *testing.T) *personalAccountStub {
 				records = []any{}
 			}
 			writeJSONForCLI(w, map[string]any{"records": records})
+		case (r.URL.Path == "/rest/createdebitor" || r.URL.Path == "/rest/createkreditor") && r.Method == http.MethodPost:
+			raw, _ := io.ReadAll(r.Body)
+			var body map[string]any
+			_ = json.Unmarshal(raw, &body)
+			stub.createBodies[r.URL.Path] = append(stub.createBodies[r.URL.Path], body)
+			response := stub.createResponses[r.URL.Path]
+			if contactID := nonEmptyString(body["contactId"]); contactID != "" {
+				if contact := stub.contactByID[contactID]; contact != nil {
+					field := "debitorNumber"
+					if r.URL.Path == "/rest/createkreditor" {
+						field = "kreditorNumber"
+					}
+					contact[field] = response["number"]
+				}
+			}
+			writeJSONForCLI(w, response)
 		case strings.HasPrefix(r.URL.Path, "/rest/debitoraccounts/") && strings.HasSuffix(r.URL.Path, "/bankConnections"):
 			stub.bankConnectionHits = append(stub.bankConnectionHits, r.URL.Path)
 			writeJSONForCLI(w, stub.bankConnections[r.URL.Path])
@@ -332,5 +353,141 @@ func TestKreditorBalanceWithExplicitDatesUsesCreditorSusa(t *testing.T) {
 	}
 	if got["Kontonummer"] != "70000" {
 		t.Fatalf("got = %#v", got)
+	}
+}
+
+func TestPersonalAccountCreatePostsFormAndStitchesResult(t *testing.T) {
+	cases := []struct {
+		command     string
+		path        string
+		numberField string
+		number      string
+		extraArgs   []string
+		wantBody    map[string]any
+	}{
+		{
+			command: "kreditor", path: "/rest/createkreditor", numberField: "kreditorNumber", number: "70001",
+			extraArgs: []string{"--number=70001", "--number-range=3", "--sum-account=3300"},
+			wantBody:  map[string]any{"contactId": 49200.0, "personalAccountNumber": "70001", "numberRangeNumber": 3.0, "sumAccountNumber": "3300"},
+		},
+		{
+			command: "debitor", path: "/rest/createdebitor", numberField: "debitorNumber", number: "10001",
+			wantBody: map[string]any{"contactId": 49200.0},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.command, func(t *testing.T) {
+			stub := newPersonalAccountStub(t)
+			stub.contactByID["49200"] = map[string]any{"id": 49200.0, "lastname": "Neue Firma"}
+			stub.createResponses[tc.path] = map[string]any{"number": tc.number}
+			accountPath := "/rest/" + tc.command + "accounts"
+			stub.accountRecords[accountPath] = []any{
+				map[string]any{"number": tc.number, "name": "Neue Firma", "contactId": 49200.0},
+			}
+			configPath := sachkontoConfigPath(t, stub.server.URL)
+			output, _ := withCLI(t, "", false)
+			args := []string{"--config", configPath, tc.command, "create", "--contact-id=49200"}
+			args = append(args, tc.extraArgs...)
+			args = append(args, "--yes")
+
+			if err := run(args); err != nil {
+				t.Fatal(err)
+			}
+			bodies := stub.createBodies[tc.path]
+			if len(bodies) != 1 {
+				t.Fatalf("create requests = %d", len(bodies))
+			}
+			if !reflect.DeepEqual(bodies[0], tc.wantBody) {
+				t.Fatalf("create body = %#v, want %#v", bodies[0], tc.wantBody)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+				t.Fatalf("stdout JSON: %v: %s", err, output.String())
+			}
+			if got["status"] != "created" || got["number"] != tc.number || got["contactId"] != 49200.0 {
+				t.Fatalf("stdout = %s", output.String())
+			}
+			if got[tc.command].(map[string]any)["number"] != tc.number {
+				t.Fatalf("%s = %#v", tc.command, got[tc.command])
+			}
+			if got["kontakt"].(map[string]any)[tc.numberField] != tc.number {
+				t.Fatalf("kontakt = %#v", got["kontakt"])
+			}
+		})
+	}
+}
+
+func TestPersonalAccountCreateReturnsAlreadyExistsWithoutWriting(t *testing.T) {
+	stub := newPersonalAccountStub(t)
+	stub.contactByID["49200"] = map[string]any{
+		"id": 49200.0, "lastname": "Bestehende Firma", "kreditorNumber": "70002",
+	}
+	stub.accountRecords["/rest/kreditoraccounts"] = []any{
+		map[string]any{"number": "70002", "name": "Bestehende Firma", "contactId": 49200.0},
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "kreditor", "create", "--contact-id=49200", "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(stub.createBodies["/rest/createkreditor"]) != 0 {
+		t.Fatalf("unexpected create requests = %#v", stub.createBodies)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	if got["status"] != "already_exists" || got["number"] != "70002" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+}
+
+func TestPersonalAccountCreateDryRunLeavesNumberUnset(t *testing.T) {
+	stub := newPersonalAccountStub(t)
+	stub.contactByID["49200"] = map[string]any{"id": 49200.0, "lastname": "Neue Firma"}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "kreditor", "create", "--contact-id=49200", "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(stub.createBodies["/rest/createkreditor"]) != 0 {
+		t.Fatalf("dry-run wrote %#v", stub.createBodies)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	request := got["request"].(map[string]any)
+	if got["status"] != "dry_run" || request["contactId"] != 49200.0 {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if _, ok := request["personalAccountNumber"]; ok {
+		t.Fatalf("personalAccountNumber must be omitted: %#v", request)
+	}
+}
+
+func TestPersonalAccountCreateDataPreservesFullForm(t *testing.T) {
+	stub := newPersonalAccountStub(t)
+	stub.contactByID["49200"] = map[string]any{"id": 49200.0, "lastname": "Daten GmbH"}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+	form := `{"contactId":49200,"group":"Inland","currency":"EUR","paymentTermForm":{"name":"14 Tage"}}`
+
+	if err := run([]string{"--config", configPath, "kreditor", "create", "--data", form, "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	request := got["request"].(map[string]any)
+	if request["group"] != "Inland" || request["currency"] != "EUR" {
+		t.Fatalf("request = %#v", request)
+	}
+	term := request["paymentTermForm"].(map[string]any)
+	if term["name"] != "14 Tage" {
+		t.Fatalf("paymentTermForm = %#v", term)
 	}
 }

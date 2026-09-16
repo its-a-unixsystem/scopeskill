@@ -699,9 +699,9 @@ commands:
   download          download bytes from an authenticated endpoint
   teamwork          Teamwork-specific operations
   sachkonto         search and inspect Sachkonten
-  kontakt           search and inspect Kontakte (master directory)
-  debitor           search and inspect Debitoren
-  kreditor          search and inspect Kreditoren
+  kontakt           search, inspect, and create Kontakte (master directory)
+  debitor           search, inspect, and create Debitoren
+  kreditor          search, inspect, and create Kreditoren
   personenkonto     search personal account Journal entries
   buchhaltung       inspect accounting configuration
   dimension         search dimensions and inspect entries

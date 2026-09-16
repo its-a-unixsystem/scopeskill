@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -15,14 +16,16 @@ import (
 )
 
 type kontaktStub struct {
-	server        *httptest.Server
-	searchBodies  []map[string]any
-	contactRoutes []string
-	contactFields []url.Values
-	searchPages   [][]any
-	idx           int
-	contactByID   map[string]map[string]any
-	contactStatus int
+	server         *httptest.Server
+	searchBodies   []map[string]any
+	createBodies   []map[string]any
+	createResponse map[string]any
+	contactRoutes  []string
+	contactFields  []url.Values
+	searchPages    [][]any
+	idx            int
+	contactByID    map[string]map[string]any
+	contactStatus  int
 }
 
 func newKontaktStub(t *testing.T) *kontaktStub {
@@ -50,6 +53,12 @@ func newKontaktStub(t *testing.T) *kontaktStub {
 				stub.idx++
 			}
 			writeJSONForCLI(w, map[string]any{"records": page})
+		case r.URL.Path == "/rest/contact/new" && r.Method == http.MethodPost:
+			raw, _ := io.ReadAll(r.Body)
+			var body map[string]any
+			_ = json.Unmarshal(raw, &body)
+			stub.createBodies = append(stub.createBodies, body)
+			writeJSONForCLI(w, stub.createResponse)
 		case strings.HasPrefix(r.URL.Path, "/rest/contact/"):
 			stub.contactRoutes = append(stub.contactRoutes, r.URL.Path)
 			stub.contactFields = append(stub.contactFields, r.URL.Query())
@@ -253,6 +262,108 @@ func TestKontaktSearchDataWithAllIsRejected(t *testing.T) {
 	}
 }
 
+func TestKontaktCreatePostsFormAndStitchesCreatedKontakt(t *testing.T) {
+	stub := newKontaktStub(t)
+	stub.createResponse = map[string]any{"status": 201.0, "contactId": 49200.0}
+	stub.contactByID["49200"] = map[string]any{
+		"id":        49200.0,
+		"lastname":  "Neue Lieferantin",
+		"firstname": "Nora",
+		"email":     "nora@example.test",
+		"vatId":     "DE123456789",
+	}
+	configPath := kontaktConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	err := run([]string{
+		"--config", configPath, "kontakt", "create",
+		"--name=Neue Lieferantin",
+		"--type=person",
+		"--firstname=Nora",
+		"--salutation=Frau",
+		"--vat-id=DE123456789",
+		"--email=nora@example.test",
+		"--street=Hauptstr. 10",
+		"--city=Köln",
+		"--postcode=50667",
+		"--country=Deutschland",
+		"--customer-number=G-2026-1",
+		"--yes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stub.createBodies) != 1 {
+		t.Fatalf("create requests = %d", len(stub.createBodies))
+	}
+	want := map[string]any{
+		"lastname": "Neue Lieferantin", "person": true, "firstname": "Nora",
+		"salutation": "Frau", "vatId": "DE123456789", "email": "nora@example.test",
+		"street1": "Hauptstr. 10", "city1": "Köln", "postcode1": "50667",
+		"country1": "Deutschland", "customerNumber": "G-2026-1",
+	}
+	if got := stub.createBodies[0]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("create body = %#v, want %#v", got, want)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	if got["status"] != "created" || got["contactId"] != 49200.0 {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if got["kontakt"].(map[string]any)["lastname"] != "Neue Lieferantin" {
+		t.Fatalf("kontakt = %#v", got["kontakt"])
+	}
+}
+
+func TestKontaktCreateDryRunDoesNotWrite(t *testing.T) {
+	stub := newKontaktStub(t)
+	configPath := kontaktConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "kontakt", "create", "--name=Nur Vorschau", "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(stub.createBodies) != 0 {
+		t.Fatalf("dry-run wrote %#v", stub.createBodies)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	if got["status"] != "dry_run" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	request := got["request"].(map[string]any)
+	if request["lastname"] != "Nur Vorschau" || request["person"] != false {
+		t.Fatalf("request = %#v", request)
+	}
+}
+func TestKontaktCreateDataPreservesFullForm(t *testing.T) {
+	stub := newKontaktStub(t)
+	configPath := kontaktConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+	form := `{"lastname":"Daten GmbH","person":false,"phone":"0228 123","customField":"kept"}`
+
+	if err := run([]string{"--config", configPath, "kontakt", "create", "--data", form, "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	request := got["request"].(map[string]any)
+	if request["phone"] != "0228 123" || request["customField"] != "kept" {
+		t.Fatalf("request = %#v", request)
+	}
+
+	err := run([]string{"--config", configPath, "kontakt", "create", "--data", form, "--name=Daten GmbH", "--dry-run"})
+	if err == nil || !strings.Contains(err.Error(), "--data cannot be combined") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestKontaktWithoutSubcommandPrintsHelpAndFails(t *testing.T) {
 	output, _ := withCLI(t, "", false)
 	client := scopeskill.NewClient(scopeskill.Config{AccessToken: "access-token"})
@@ -260,7 +371,7 @@ func TestKontaktWithoutSubcommandPrintsHelpAndFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	for _, want := range []string{"search", "show"} {
+	for _, want := range []string{"search", "show", "create"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("missing %q in %q", want, output.String())
 		}

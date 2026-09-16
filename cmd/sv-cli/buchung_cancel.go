@@ -21,8 +21,8 @@ Safety:
   --yes       bypass the interactive "cancel <documentNumber>" confirmation
 
 A cancellation is only reported after the provider-linked Storno (an exact
-sign-reversed Buchung whose rows carry cancelDocument=<documentNumber>) is
-read back from the journal.
+sign-reversed Buchung whose rows carry cancellationNumber=<original
+pdeRowNumber>) is read back from the journal.
 
 Statuses on stdout: dry_run, cancelled, already_cancelled, conflict,
 verification_required. Any status other than cancelled or already_cancelled
@@ -73,7 +73,7 @@ func buchungCancel(client *scopeskill.Client, args []string) error {
 		if !ok {
 			return cancelConflict(documentNumber, "journal returned a malformed record", nil)
 		}
-		if nonEmptyString(rec["cancelDocument"]) != "" {
+		if nonEmptyString(rec["cancellationNumber"]) != "" {
 			return cancelConflict(documentNumber, fmt.Sprintf("documentNumber %s is itself a cancellation document and cannot be cancelled", documentNumber), nil)
 		}
 	}
@@ -87,8 +87,12 @@ func buchungCancel(client *scopeskill.Client, args []string) error {
 	if original.PostingDate == "" {
 		return cancelConflict(documentNumber, fmt.Sprintf("journal rows for %s carry no parseable postingDate", documentNumber), nil)
 	}
+	originalPDENumber, err := sharedJournalNumber(originalRecords, "pdeRowNumber")
+	if err != nil {
+		return cancelConflict(documentNumber, fmt.Sprintf("journal records carry no consistent pdeRowNumber: %v", err), nil)
+	}
 
-	state, err := discoverCancellations(client, original)
+	state, err := discoverCancellations(client, original, originalPDENumber)
 	if err != nil {
 		return cancelVerificationRequired(documentNumber, "", "", state.linkedNumbers, nil, err, nil)
 	}
@@ -203,7 +207,7 @@ func buchungCancel(client *scopeskill.Client, args []string) error {
 		})
 		return writeErr
 	}
-	return verifyCancelledBuchung(client, original, result, outcome, writeErr)
+	return verifyCancelledBuchung(client, original, originalPDENumber, result, outcome, writeErr)
 }
 
 func fetchCompleteJournal(client *scopeskill.Client, documentNumber string) ([]any, error) {
@@ -218,13 +222,32 @@ func fetchCompleteJournal(client *scopeskill.Client, documentNumber string) ([]a
 	return scopeskill.RecordsFromResponse(raw)
 }
 
-func discoverCancellations(client *scopeskill.Client, original scopeskill.CanonicalBuchung) (cancellationState, error) {
+func sharedJournalNumber(records []any, field string) (string, error) {
+	var shared string
+	for i, item := range records {
+		record, ok := item.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("journal record %d is not an object", i)
+		}
+		value := strings.TrimSpace(nonEmptyString(record[field]))
+		if value == "" {
+			return "", fmt.Errorf("journal record %d lacks %s", i, field)
+		}
+		if shared != "" && value != shared {
+			return "", fmt.Errorf("journal record %d: %s %q conflicts with earlier value %q", i, field, value, shared)
+		}
+		shared = value
+	}
+	return shared, nil
+}
+
+func discoverCancellations(client *scopeskill.Client, original scopeskill.CanonicalBuchung, originalPDENumber string) (cancellationState, error) {
 	var state cancellationState
 	req := scopeskill.SearchRequest{
 		PageSize: scopeskill.MaxSearchPageSize,
-		Fields:   append(append([]string{}, journalSearchDefaultFields...), "cancelDocument"),
+		Fields:   append(append([]string{}, journalSearchDefaultFields...), "pdeRowNumber", "cancellationNumber"),
 		Conditions: []scopeskill.SearchCondition{
-			{Field: "cancelDocument", Operator: scopeskill.OpEquals, Value: original.DocumentNumber},
+			{Field: "cancellationNumber", Operator: scopeskill.OpEquals, Value: originalPDENumber},
 		},
 	}
 	body, err := req.Body()
@@ -247,8 +270,8 @@ func discoverCancellations(client *scopeskill.Client, original scopeskill.Canoni
 		if !ok {
 			return state, errors.New("journal linkage search returned a malformed record")
 		}
-		if nonEmptyString(rec["cancelDocument"]) != original.DocumentNumber {
-			return state, fmt.Errorf("journal linkage search returned a row without cancelDocument=%s", original.DocumentNumber)
+		if nonEmptyString(rec["cancellationNumber"]) != originalPDENumber {
+			return state, fmt.Errorf("journal linkage search returned a row without cancellationNumber=%s", originalPDENumber)
 		}
 		number := nonEmptyString(rec["documentNumber"])
 		if number == "" {
@@ -271,8 +294,8 @@ func discoverCancellations(client *scopeskill.Client, original scopeskill.Canoni
 			if !ok {
 				return state, fmt.Errorf("linked document %s returned a malformed record", number)
 			}
-			if nonEmptyString(rec["cancelDocument"]) != original.DocumentNumber {
-				return state, fmt.Errorf("linked document %s has a row without cancelDocument=%s", number, original.DocumentNumber)
+			if nonEmptyString(rec["cancellationNumber"]) != originalPDENumber {
+				return state, fmt.Errorf("linked document %s has a row without cancellationNumber=%s", number, originalPDENumber)
 			}
 		}
 		canonical, err := scopeskill.CanonicalFromJournal(records)
@@ -283,6 +306,7 @@ func discoverCancellations(client *scopeskill.Client, original scopeskill.Canoni
 		if err != nil {
 			return state, err
 		}
+		want.DocumentText = ""
 		if diff := scopeskill.CompareBuchung(want, canonical, false); diff.Equal() {
 			if state.stornoNumber != "" {
 				return state, fmt.Errorf("multiple Stornos found for %s", original.DocumentNumber)
@@ -355,7 +379,7 @@ func knownCancellationNumber(result any) string {
 	case string:
 		return strings.TrimSpace(v)
 	case map[string]any:
-		for _, key := range []string{"cancellationDocumentNumber", "documentNumber"} {
+		for _, key := range []string{"cancellation documentNumber", "cancellationDocumentNumber", "documentNumber"} {
 			if s := strings.TrimSpace(nonEmptyString(v[key])); s != "" {
 				return s
 			}
@@ -364,7 +388,7 @@ func knownCancellationNumber(result any) string {
 	return ""
 }
 
-func verifyCancelledBuchung(client *scopeskill.Client, original scopeskill.CanonicalBuchung, result any, outcome writeOutcome, writeErr error) error {
+func verifyCancelledBuchung(client *scopeskill.Client, original scopeskill.CanonicalBuchung, originalPDENumber string, result any, outcome writeOutcome, writeErr error) error {
 	known := knownCancellationNumber(result)
 
 	var originalErr error
@@ -376,8 +400,12 @@ func verifyCancelledBuchung(client *scopeskill.Client, original scopeskill.Canon
 	case len(reread) == 0:
 		originalErr = fmt.Errorf("original %s is no longer present in the journal", original.DocumentNumber)
 	default:
-		rereadCanonical, err := scopeskill.CanonicalFromJournal(reread)
+		rereadPDENumber, err := sharedJournalNumber(reread, "pdeRowNumber")
 		if err != nil {
+			originalErr = fmt.Errorf("re-read original has no consistent pdeRowNumber: %w", err)
+		} else if rereadPDENumber != originalPDENumber {
+			originalErr = fmt.Errorf("original pdeRowNumber changed from %s to %s", originalPDENumber, rereadPDENumber)
+		} else if rereadCanonical, err := scopeskill.CanonicalFromJournal(reread); err != nil {
 			originalErr = fmt.Errorf("re-read original is inconsistent: %w", err)
 		} else if !canonicalBuchungEqual(original, rereadCanonical) {
 			originalErr = fmt.Errorf("original %s changed during cancellation", original.DocumentNumber)
@@ -386,7 +414,7 @@ func verifyCancelledBuchung(client *scopeskill.Client, original scopeskill.Canon
 		}
 	}
 
-	state, discoverErr := discoverCancellations(client, original)
+	state, discoverErr := discoverCancellations(client, original, originalPDENumber)
 
 	if originalErr == nil && discoverErr == nil && state.stornoNumber != "" {
 		out := map[string]any{

@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -134,13 +136,14 @@ func cancelOriginalRows() []any {
 			"accountNumber": "4400", "debitAmount": 119.0, "creditAmount": 0.0,
 			"vatKey": "U19", "postingText": "Wareneingang", "documentText": "Rechnung",
 			"internalDocumentNumber": "INT-1", "externalDocumentNumber": "EXT-1",
-			"documentDimension_1": 111.0,
+			"documentDimension_1": 111.0, "pdeRowNumber": "9001",
 		},
 		map[string]any{
 			"documentNumber": "P-2025-1", "postingDate": float64(1748822400000),
 			"accountNumber": "1200", "debitAmount": 0.0, "creditAmount": 119.0,
 			"postingText": "Wareneingang", "documentText": "Rechnung",
 			"internalDocumentNumber": "INT-1", "externalDocumentNumber": "EXT-1",
+			"pdeRowNumber": "9001",
 		},
 	}
 }
@@ -152,22 +155,52 @@ func cancelStornoRows() []any {
 			"accountNumber": "4400", "debitAmount": 0.0, "creditAmount": 119.0,
 			"vatKey": "U19", "postingText": "Wareneingang", "documentText": "Rechnung",
 			"internalDocumentNumber": "INT-1", "externalDocumentNumber": "EXT-1",
-			"documentDimension_1": 111.0, "cancelDocument": "P-2025-1",
+			"documentDimension_1": 111.0, "pdeRowNumber": "9101", "cancellationNumber": "9001",
 		},
 		map[string]any{
 			"documentNumber": "S-2025-1", "postingDate": float64(1748822400000),
 			"accountNumber": "1200", "debitAmount": 119.0, "creditAmount": 0.0,
 			"postingText": "Wareneingang", "documentText": "Rechnung",
 			"internalDocumentNumber": "INT-1", "externalDocumentNumber": "EXT-1",
-			"cancelDocument": "P-2025-1",
+			"pdeRowNumber": "9101", "cancellationNumber": "9001",
 		},
 	}
 }
 
 func cancelStornoLink() []any {
 	return []any{
-		map[string]any{"documentNumber": "S-2025-1", "cancelDocument": "P-2025-1"},
+		map[string]any{"documentNumber": "S-2025-1", "cancellationNumber": "9001", "pdeRowNumber": "9101"},
 	}
+}
+
+func loadFixtureRecords(t *testing.T, name string) []any {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	records, ok := doc["records"].([]any)
+	if !ok {
+		t.Fatalf("fixture %s lacks records", name)
+	}
+	return records
+}
+
+func loadFixtureJSON(t *testing.T, name string) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
 }
 
 func newHappyCancelStub(t *testing.T) *cancelStub {
@@ -270,18 +303,18 @@ func TestBuchungCancelYesHappyPath(t *testing.T) {
 	search := stub.journalSearchBodies[0]
 	conditions := search["search"].([]any)
 	cond := conditions[0].(map[string]any)
-	if cond["field"] != "cancelDocument" || cond["operator"] != "equals" || cond["value"] != "P-2025-1" {
+	if cond["field"] != "cancellationNumber" || cond["operator"] != "equals" || cond["value"] != "9001" {
 		t.Fatalf("linkage search = %#v", conditions)
 	}
 	fields, _ := search["fields"].([]any)
 	found := false
 	for _, field := range fields {
-		if field == "cancelDocument" {
+		if field == "cancellationNumber" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("linkage fields missing cancelDocument: %#v", fields)
+		t.Fatalf("linkage fields missing cancellationNumber: %#v", fields)
 	}
 	if stub.journalGetCount("P-2025-1") < 2 {
 		t.Fatalf("original GETs = %d, want preflight + post-write read-back", stub.journalGetCount("P-2025-1"))
@@ -323,7 +356,7 @@ func TestBuchungCancelZeroWriteConflicts(t *testing.T) {
 		}, "conflict", "not found"},
 		{"target is a cancellation", func(stub *cancelStub) {
 			for _, item := range stub.journalByID["P-2025-1"] {
-				item.(map[string]any)["cancelDocument"] = "X-2025-9"
+				item.(map[string]any)["cancellationNumber"] = "9000"
 			}
 		}, "conflict", "cancellation document"},
 		{"closed period", func(stub *cancelStub) {
@@ -345,23 +378,31 @@ func TestBuchungCancelZeroWriteConflicts(t *testing.T) {
 			stub.journalByID["P-2025-1"][1].(map[string]any)["documentText"] = "anders"
 		}, "conflict", "inconsistent"},
 		{"linked candidate not a Storno", func(stub *cancelStub) {
-			stub.linkedRows = []any{map[string]any{"documentNumber": "R-2025-1", "cancelDocument": "P-2025-1"}}
+			stub.linkedRows = []any{map[string]any{"documentNumber": "R-2025-1", "cancellationNumber": "9001"}}
 			stub.journalByID["R-2025-1"] = []any{
-				map[string]any{"documentNumber": "R-2025-1", "postingDate": float64(1748822400000), "accountNumber": "4400", "debitAmount": 50.0, "creditAmount": 0.0, "cancelDocument": "P-2025-1"},
+				map[string]any{"documentNumber": "R-2025-1", "postingDate": float64(1748822400000), "accountNumber": "4400", "debitAmount": 50.0, "creditAmount": 0.0, "cancellationNumber": "9001"},
 			}
 		}, "conflict", "Storno"},
 		{"linkage search failure", func(stub *cancelStub) {
 			stub.linkageStatus = 500
 		}, "verification_required", "linkage search failed"},
-		{"linkage row without cancelDocument", func(stub *cancelStub) {
+		{"linkage row without cancellationNumber", func(stub *cancelStub) {
 			stub.linkedRows = []any{map[string]any{"documentNumber": "R-2025-1"}}
-		}, "verification_required", ""},
-		{"linked document rows without cancelDocument", func(stub *cancelStub) {
+		}, "verification_required", "cancellationNumber"},
+		{"linked document rows without cancellationNumber", func(stub *cancelStub) {
 			stub.linkedRows = cancelStornoLink()
 			stub.journalByID["S-2025-1"] = []any{
-				map[string]any{"documentNumber": "S-2025-1", "postingDate": float64(1748822400000), "accountNumber": "4400", "debitAmount": 0.0, "creditAmount": 119.0},
+				map[string]any{"documentNumber": "S-2025-1", "postingDate": float64(1748822400000), "accountNumber": "4400", "debitAmount": 0.0, "creditAmount": 119.0, "pdeRowNumber": "9101"},
 			}
-		}, "verification_required", "cancelDocument"},
+		}, "verification_required", "cancellationNumber"},
+		{"missing original pdeRowNumber", func(stub *cancelStub) {
+			for _, item := range stub.journalByID["P-2025-1"] {
+				delete(item.(map[string]any), "pdeRowNumber")
+			}
+		}, "conflict", "pdeRowNumber"},
+		{"inconsistent original pdeRowNumber", func(stub *cancelStub) {
+			stub.journalByID["P-2025-1"][1].(map[string]any)["pdeRowNumber"] = "9002"
+		}, "conflict", "pdeRowNumber"},
 		{"malformed myaccount", func(stub *cancelStub) {
 			stub.myaccount = map[string]any{"username": "someone"}
 		}, "verification_required", "organisation"},
@@ -518,7 +559,7 @@ func TestBuchungCancelDroppedConnectionNotPersisted(t *testing.T) {
 
 func TestBuchungCancelAmbiguousOKWithoutStorno(t *testing.T) {
 	stub := newHappyCancelStub(t)
-	stub.cancelResponse = map[string]any{"cancellationDocumentNumber": "S-2025-9"}
+	stub.cancelResponse = map[string]any{"cancellation documentNumber": "S-2025-9"}
 	stub.afterCancelWrite = nil
 	configPath := postingConfigPath(t, stub.server.URL)
 	output, _ := withCLI(t, "", false)
@@ -588,9 +629,9 @@ func TestBuchungCancelPostWriteOriginalMutated(t *testing.T) {
 func TestBuchungCancelReadBackMismatchRequiresVerification(t *testing.T) {
 	stub := newHappyCancelStub(t)
 	stub.afterCancelWrite = func() {
-		stub.linkedRows = []any{map[string]any{"documentNumber": "S-2025-1", "cancelDocument": "P-2025-1"}}
+		stub.linkedRows = []any{map[string]any{"documentNumber": "S-2025-1", "cancellationNumber": "9001"}}
 		stub.journalByID["S-2025-1"] = []any{
-			map[string]any{"documentNumber": "S-2025-1", "postingDate": float64(1748822400000), "accountNumber": "4400", "debitAmount": 0.0, "creditAmount": 100.0, "cancelDocument": "P-2025-1"},
+			map[string]any{"documentNumber": "S-2025-1", "postingDate": float64(1748822400000), "accountNumber": "4400", "debitAmount": 0.0, "creditAmount": 100.0, "pdeRowNumber": "9101", "cancellationNumber": "9001"},
 		}
 	}
 	configPath := postingConfigPath(t, stub.server.URL)
@@ -660,5 +701,95 @@ func TestBuchungCancelRejectsWildcardWithoutRequests(t *testing.T) {
 	}
 	if len(stub.hits) != 0 {
 		t.Fatalf("hits = %#v", stub.hits)
+	}
+}
+
+func newLiveContractStub(t *testing.T) *cancelStub {
+	t.Helper()
+	stub := newCancelStub(t)
+	stub.fiscalYears = []any{
+		map[string]any{
+			"id": 46, "name": "2026", "open": true,
+			"beginningTs": float64(1767222000000), "endTs": float64(1798757999999),
+			"periods": []any{
+				map[string]any{"name": "Januar 2026", "open": true, "beginningTs": float64(1767222000000), "endTs": float64(1769900399999)},
+			},
+		},
+	}
+	stub.sachkonten["1461"] = map[string]any{"id": 11, "number": "1461", "name": "Geldtransit 1", "active": true}
+	stub.sachkonten["1462"] = map[string]any{"id": 12, "number": "1462", "name": "Geldtransit 2", "active": true}
+	stub.journalByID["2026-000167"] = loadFixtureRecords(t, "buchung_cancel_live_original.json")
+	return stub
+}
+
+func TestBuchungCancelRecordedLiveContract(t *testing.T) {
+	stub := newLiveContractStub(t)
+	stub.cancelResponse = loadFixtureJSON(t, "buchung_cancel_live_response.json")
+	stub.afterCancelWrite = func() {
+		stub.linkedRows = loadFixtureRecords(t, "buchung_cancel_live_link_search.json")
+		stub.journalByID["2026-000168"] = loadFixtureRecords(t, "buchung_cancel_live_storno.json")
+	}
+	configPath := postingConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "buchung", "cancel", "2026-000167", "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	if stub.cancelWrites != 1 {
+		t.Fatalf("cancel writes = %d", stub.cancelWrites)
+	}
+	got := stdoutStatus(t, output.String())
+	if got["status"] != "cancelled" || got["originalDocumentNumber"] != "2026-000167" || got["cancellationDocumentNumber"] != "2026-000168" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	found := false
+	for _, body := range stub.journalSearchBodies {
+		for _, item := range body["search"].([]any) {
+			cond := item.(map[string]any)
+			if cond["field"] == "cancellationNumber" && cond["operator"] == "equals" && cond["value"] == "89823" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no linkage search on cancellationNumber=89823: %#v", stub.journalSearchBodies)
+	}
+}
+
+func TestBuchungCancelRecordedIdempotent(t *testing.T) {
+	stub := newLiveContractStub(t)
+	stub.linkedRows = loadFixtureRecords(t, "buchung_cancel_live_link_search.json")
+	stub.journalByID["2026-000168"] = loadFixtureRecords(t, "buchung_cancel_live_storno.json")
+	configPath := postingConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "buchung", "cancel", "2026-000167", "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	got := stdoutStatus(t, output.String())
+	if got["status"] != "already_cancelled" || got["originalDocumentNumber"] != "2026-000167" || got["cancellationDocumentNumber"] != "2026-000168" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if stub.cancelWrites != 0 {
+		t.Fatalf("cancel writes = %d", stub.cancelWrites)
+	}
+}
+
+func TestBuchungCancelRecordedStornoTarget(t *testing.T) {
+	stub := newLiveContractStub(t)
+	stub.journalByID["2026-000168"] = loadFixtureRecords(t, "buchung_cancel_live_storno.json")
+	configPath := postingConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	err := run([]string{"--config", configPath, "buchung", "cancel", "2026-000168", "--yes"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	got := stdoutStatus(t, output.String())
+	if got["status"] != "conflict" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if stub.cancelWrites != 0 {
+		t.Fatalf("cancel writes = %d", stub.cancelWrites)
 	}
 }

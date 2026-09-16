@@ -168,6 +168,26 @@ _Avoid_: Credit, credit note
 The list of unsettled **Belege** on either the debitor side (Forderungen) or the kreditor side (Verbindlichkeiten); the side is always specified explicitly when querying.
 _Avoid_: Open invoices, OPs
 
+**DATEV EXTF**:
+The standard CSV-based exchange format used to transfer accounting data between Scopevisio and a Steuerberater.
+_Avoid_: DATEV format (when the specific EXTF variant is meant)
+
+**BWA**:
+Betriebswirtschaftliche Auswertung. The standard short-term financial report used by SMEs to assess current profitability, distinct from the statutory **Bilanz** and **GuV**.
+_Avoid_: Business evaluation, P&L
+
+**Bilanz**:
+The balance sheet report showing assets and liabilities at a specific date.
+_Avoid_: Balance sheet
+
+**GuV**:
+Gewinn- und Verlustrechnung. The profit and loss statement over a period.
+_Avoid_: P&L, income statement
+
+**Reisekosten**:
+Travel expenses comprising different position types like **Nebenkosten** (incidentals), **Übernachtung** (accommodation), and **Fahrtkosten** (mileage/transport).
+_Avoid_: Travel entries
+
 ## Relationships
 
 - A **scopeskill** contains exactly one **Codex skill**.

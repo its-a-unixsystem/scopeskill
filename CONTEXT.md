@@ -113,8 +113,16 @@ A single posting in the **Journal**: at minimum a Soll/Haben pair on Konten with
 _Avoid_: Posting line, journal entry
 
 **Journal**:
-The chronological sequence of all **Buchungen** for a Fiskaljahr; queried through the **`sv-cli`**; mutated only by the explicit `buchung create` write path.
+The chronological sequence of all **Buchungen** for a Fiskaljahr; queried through the **`sv-cli`**; mutated only by the explicit `buchung create` and `buchung cancel` write paths.
 _Avoid_: Ledger
+
+**Storno**:
+A cancellation **Buchung** that reverses an original **Buchung**: the provider links it to the original, and its rows are an exact sign reversal of the original's rows (same accounts, posting date, and document numbers, negated amounts). An original **Buchung** has at most one **Storno**.
+_Avoid_: Reversal entry, negative posting
+
+**Korrekturbuchung**:
+A reviewed replacement **Buchung** that, together with the **Storno**, supersedes an erroneous original: the original remains linked to its **Storno**, and the **Korrekturbuchung** carries the corrected content as a new **Buchung**.
+_Avoid_: Correction posting, amendment
 
 **Beleg**:
 The document underlying one or more **Buchungen**, identified by Belegnummer. Examples include **Eingangsrechnung** and **Gutschrift**.

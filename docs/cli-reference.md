@@ -189,6 +189,27 @@ Search chronological postings (Buchungen).
   the journal afterwards. Stdout statuses: `dry_run`, `created`,
   `already_exists`, `conflict`, `verification_required`, `verification_failed`;
   everything except `created`/`already_exists` exits non-zero.
+- `sv-cli buchung cancel <documentNumber> [--dry-run] [--yes]`
+  Cancel one active Buchung via `POST /journal/<documentNumber>/cancel`. The
+  command first reads the complete original, then searches the journal for
+  documents linked through `cancelDocument`: a linked document whose rows are
+  an exact sign reversal of the original counts as the Storno. If a verified
+  Storno already exists the command reports `already_cancelled` and writes
+  nothing, so it is safe to retry. Before writing it checks that the fiscal
+  period is open and all original accounts exist and are active, previews the
+  original rows and the active organisation on stderr, and — unless `--yes` is
+  given — asks a TTY user to type `cancel <documentNumber>`. The write is sent
+  exactly once and success is only reported after the Storno is read back and
+  verified. Stdout statuses: `dry_run`, `cancelled`, `already_cancelled`,
+  `conflict`, `verification_required`; everything except `cancelled`/
+  `already_cancelled` exits non-zero.
+- `sv-cli buchung replace <documentNumber> --data @replacement.json [--dry-run] [--yes]`
+  Intentionally unavailable: the atomic semantics of `POST
+  /postings/correction` have not passed the mandatory controlled live contract
+  test, so the command exits with a conflict without touching the API. The
+  safe fallback is a `buchung cancel` and a `buchung create` issued as two
+  separately approved and confirmed commands; they are never chained
+  automatically.
 
 ## Common CLI Patterns
 

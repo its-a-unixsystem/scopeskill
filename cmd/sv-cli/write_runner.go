@@ -16,6 +16,7 @@ type writeRequest struct {
 	Method        string
 	Path          string
 	Payload       any
+	Preview       any
 	ConfirmPhrase string
 }
 
@@ -39,7 +40,11 @@ func writePreview(client *scopeskill.Client, req writeRequest) {
 	fmt.Fprintf(cliError, "base URL: %s\n", client.Config.BaseURL)
 	fmt.Fprintf(cliError, "SKR: %s\n", client.Config.SKR)
 	fmt.Fprintf(cliError, "endpoint: %s %s\n", req.Method, req.Path)
-	raw, _ := json.MarshalIndent(req.Payload, "", "  ")
+	preview := req.Payload
+	if req.Preview != nil {
+		preview = req.Preview
+	}
+	raw, _ := json.MarshalIndent(preview, "", "  ")
 	fmt.Fprintln(cliError, string(raw))
 }
 

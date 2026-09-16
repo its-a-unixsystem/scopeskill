@@ -47,6 +47,7 @@ Follow this escalation pattern when interacting with Scopevisio:
 | Find open invoices/vouchers             | `offene-posten list --seite=...`         | Looking for unsettled items on either the debitor or kreditor side  |
 | Search chronological postings           | `journal search`                         | You need to see the ledger entries (Buchungen)                      |
 | Create one reviewed Buchung             | `buchung create --data @f --dry-run`, then `--yes`  | Only from an approved Buchungssatz; never invent accounts/tax keys   |
+| Cancel one reviewed Buchung             | `buchung cancel <nr> --dry-run`, then `--yes`       | Only after the user approved cancelling this exact documentNumber     |
 | View an incoming invoice                | `eingangsrechnung show`                  | Investigating vendor-side Belege (documents)                        |
 | Fetch accounting metadata               | `buchhaltung info` / `dimension search`  | Need context on how the system is configured                        |
 | Browse Teamworkbridge collections       | `get /teamworkbridge/collections`        | Navigating the remote CenterDevice document tree                    |
@@ -74,6 +75,15 @@ Search for specific postings by account or amount:
 ```bash
 sv-cli journal search --konto=70019 --amount-min=100.00 --all
 ```
+
+Cancelling a Buchung is a write operation: always run `buchung cancel <nr>
+--dry-run` first, show the preview to the user, and only re-run with `--yes`
+after explicit approval. `buchung replace` is gated and refuses to write: the
+atomic semantics of `POST /postings/correction` have not passed the required
+controlled live contract test. Never call `/postings/correction` (or any raw
+endpoint) to cancel or correct a Buchung, and never improvise a replacement by
+chaining `buchung cancel` and `buchung create` automatically — issue each
+step separately and only after its own confirmation.
 
 ### Belege (Invoices & Credits)
 Search for specific documents or filter by workflow state. Note that workflow states are integers (e.g., `0` = Unbearbeitet):

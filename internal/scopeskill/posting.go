@@ -289,10 +289,12 @@ type CanonicalRow struct {
 // CanonicalBuchung is the comparison-normal form of a whole Buchung. Rows are
 // sorted by (Account, Amount, VatKey, RowText).
 type CanonicalBuchung struct {
-	DocumentNumber string         `json:"documentNumber"`
-	PostingDate    string         `json:"postingDate"`
-	DocumentText   string         `json:"documentText,omitempty"`
-	Rows           []CanonicalRow `json:"rows"`
+	DocumentNumber         string         `json:"documentNumber"`
+	PostingDate            string         `json:"postingDate"`
+	ExternalDocumentNumber string         `json:"externalDocumentNumber,omitempty"`
+	InternalDocumentNumber string         `json:"internalDocumentNumber,omitempty"`
+	DocumentText           string         `json:"documentText,omitempty"`
+	Rows                   []CanonicalRow `json:"rows"`
 }
 
 func (in SinglePostingInput) Canonical() CanonicalBuchung {
@@ -314,11 +316,32 @@ func (in SinglePostingInput) Canonical() CanonicalBuchung {
 	}
 	sortCanonicalRows(rows)
 	return CanonicalBuchung{
-		DocumentNumber: in.DocumentNumber,
-		PostingDate:    in.PostingDate,
-		DocumentText:   in.DocumentText,
-		Rows:           rows,
+		DocumentNumber:         in.DocumentNumber,
+		PostingDate:            in.PostingDate,
+		ExternalDocumentNumber: in.ExternalDocumentNumber,
+		InternalDocumentNumber: in.InternalDocumentNumber,
+		DocumentText:           in.DocumentText,
+		Rows:                   rows,
 	}
+}
+
+func CanonicalCancellation(original CanonicalBuchung, cancellationDocumentNumber string) (CanonicalBuchung, error) {
+	if cancellationDocumentNumber == "" {
+		return CanonicalBuchung{}, errors.New("cancellationDocumentNumber is required")
+	}
+	out := original
+	out.DocumentNumber = cancellationDocumentNumber
+	out.Rows = make([]CanonicalRow, len(original.Rows))
+	for i, row := range original.Rows {
+		amount, err := ParseAmount(row.Amount)
+		if err != nil {
+			return CanonicalBuchung{}, fmt.Errorf("rows[%d]: %w", i+1, err)
+		}
+		row.Amount = Amount{cents: -amount.cents}.String()
+		out.Rows[i] = row
+	}
+	sortCanonicalRows(out.Rows)
+	return out, nil
 }
 
 func sortCanonicalRows(rows []CanonicalRow) {
@@ -344,10 +367,26 @@ func CanonicalFromJournal(records []any) (CanonicalBuchung, error) {
 		return CanonicalBuchung{}, errors.New("journal contains no records")
 	}
 	out := CanonicalBuchung{Rows: []CanonicalRow{}}
+	shared := map[string]string{}
 	for i, item := range records {
 		rec, ok := item.(map[string]any)
 		if !ok {
 			return CanonicalBuchung{}, fmt.Errorf("journal record %d is not an object", i)
+		}
+		for key, value := range map[string]string{
+			"documentNumber":         stringField(rec, "documentNumber"),
+			"postingDate":            journalPostingDate(rec["postingDate"]),
+			"documentText":           stringField(rec, "documentText"),
+			"externalDocumentNumber": stringField(rec, "externalDocumentNumber"),
+			"internalDocumentNumber": stringField(rec, "internalDocumentNumber"),
+		} {
+			if value == "" {
+				continue
+			}
+			if existing := shared[key]; existing != "" && existing != value {
+				return CanonicalBuchung{}, fmt.Errorf("journal record %d: %s %q conflicts with earlier value %q", i, key, value, existing)
+			}
+			shared[key] = value
 		}
 		debit, hasDebit := rec["debitAmount"].(float64)
 		credit, hasCredit := rec["creditAmount"].(float64)
@@ -377,12 +416,12 @@ func CanonicalFromJournal(records []any) (CanonicalBuchung, error) {
 			}
 		}
 		out.Rows = append(out.Rows, row)
-		if i == 0 {
-			out.DocumentNumber = stringField(rec, "documentNumber")
-			out.PostingDate = journalPostingDate(rec["postingDate"])
-			out.DocumentText = stringField(rec, "documentText")
-		}
 	}
+	out.DocumentNumber = shared["documentNumber"]
+	out.PostingDate = shared["postingDate"]
+	out.DocumentText = shared["documentText"]
+	out.ExternalDocumentNumber = shared["externalDocumentNumber"]
+	out.InternalDocumentNumber = shared["internalDocumentNumber"]
 	sortCanonicalRows(out.Rows)
 	return out, nil
 }
@@ -457,6 +496,12 @@ func CompareBuchung(expected, actual CanonicalBuchung, allowGenerated bool) Buch
 	}
 	if expected.PostingDate != actual.PostingDate {
 		diff.Fields = append(diff.Fields, "postingDate")
+	}
+	if expected.ExternalDocumentNumber != "" && expected.ExternalDocumentNumber != actual.ExternalDocumentNumber {
+		diff.Fields = append(diff.Fields, "externalDocumentNumber")
+	}
+	if expected.InternalDocumentNumber != "" && expected.InternalDocumentNumber != actual.InternalDocumentNumber {
+		diff.Fields = append(diff.Fields, "internalDocumentNumber")
 	}
 	if expected.DocumentText != "" && expected.DocumentText != actual.DocumentText {
 		diff.Fields = append(diff.Fields, "documentText")

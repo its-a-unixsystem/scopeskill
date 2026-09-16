@@ -6,17 +6,21 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/its-a-unixsystem/scopeskill/internal/scopeskill"
 )
 
-const buchungCancelUsage = `usage: sv-cli buchung cancel <documentNumber> [--dry-run] [--yes]
+const buchungCancelUsage = `usage: sv-cli buchung cancel <documentNumber> [--row=N] [--date=YYYY-MM-DD] [--dry-run] [--yes]
 
-Cancels the active Buchung <documentNumber> via POST /journal/<documentNumber>/cancel.
+Cancels the active Buchung <documentNumber>. Without --row, uses POST /journal/<documentNumber>/cancel.
+With --row, uses POST /posting/cancel with the selected row and optional cancellation date.
 
 Safety:
+  --row      cancel one positive pde row number via /posting/cancel
+  --date     cancellation date (YYYY-MM-DD); requires --row
   --dry-run   state discovery, preflight checks and preview only; no write
   --yes       bypass the interactive "cancel <documentNumber>" confirmation
 
@@ -45,6 +49,8 @@ type cancellationState struct {
 
 func buchungCancel(client *scopeskill.Client, args []string) error {
 	flags := flag.NewFlagSet("buchung cancel", flag.ContinueOnError)
+	rowValue := flags.String("row", "", "cancel one pde row number")
+	dateValue := flags.String("date", "", "cancellation date (YYYY-MM-DD)")
 	flags.SetOutput(cliError)
 	dryRun := flags.Bool("dry-run", false, "state discovery, preflight checks and preview only; no write")
 	yes := flags.Bool("yes", false, "skip the interactive confirmation")
@@ -57,6 +63,26 @@ func buchungCancel(client *scopeskill.Client, args []string) error {
 		return errors.New("buchung cancel takes exactly one documentNumber")
 	}
 	documentNumber := flags.Arg(0)
+	var rowNumber int
+	rowMode := *rowValue != ""
+	if rowMode {
+		parsed, err := strconv.Atoi(*rowValue)
+		if err != nil || parsed <= 0 {
+			return errors.New("--row must be a positive integer")
+		}
+		rowNumber = parsed
+	}
+	if *dateValue != "" && !rowMode {
+		return errors.New("--date requires --row")
+	}
+	cancellationDate := ""
+	if *dateValue != "" {
+		date, err := time.Parse(isoDateFormat, *dateValue)
+		if err != nil || date.Format(isoDateFormat) != *dateValue {
+			return errors.New("--date must be a date in YYYY-MM-DD format")
+		}
+		cancellationDate = date.Format("02.01.2006")
+	}
 	if strings.ContainsAny(documentNumber, "*?") {
 		return fmt.Errorf("buchung cancel requires an exact documentNumber, got %q", documentNumber)
 	}
@@ -91,43 +117,54 @@ func buchungCancel(client *scopeskill.Client, args []string) error {
 	if err != nil {
 		return cancelConflict(documentNumber, fmt.Sprintf("journal records carry no consistent pdeRowNumber: %v", err), nil)
 	}
-
-	state, err := discoverCancellations(client, original, originalPDENumber)
-	if err != nil {
-		return cancelVerificationRequired(documentNumber, "", "", state.linkedNumbers, nil, err, nil)
+	state := cancellationState{}
+	if rowMode {
+		if strings.TrimSpace(originalPDENumber) != strconv.Itoa(rowNumber) {
+			return cancelConflict(documentNumber, fmt.Sprintf("pdeRowNumber %d does not belong to documentNumber %s", rowNumber, documentNumber), nil)
+		}
+	} else {
+		state, err = discoverCancellations(client, original, originalPDENumber)
+		if err != nil {
+			return cancelVerificationRequired(documentNumber, "", "", state.linkedNumbers, nil, err, nil)
+		}
+		if state.stornoNumber == "" && len(state.linkedNumbers) > 0 {
+			return cancelConflict(documentNumber, "journal links exist but none is a verified sign-reversed Storno; refusing to write", state.linkedNumbers)
+		}
 	}
-	if state.stornoNumber == "" && len(state.linkedNumbers) > 0 {
-		return cancelConflict(documentNumber, "journal links exist but none is a verified sign-reversed Storno; refusing to write", state.linkedNumbers)
-	}
-	if state.stornoNumber != "" {
+	if !rowMode && state.stornoNumber != "" {
 		out := map[string]any{
-			"status":                     "already_cancelled",
-			"state":                      "already_cancelled",
-			"originalDocumentNumber":     documentNumber,
-			"cancellationDocumentNumber": state.stornoNumber,
-			"original":                   map[string]any{"documentNumber": documentNumber, "rows": originalRecords},
-			"cancellation":               map[string]any{"documentNumber": state.stornoNumber, "rows": state.stornoRecords},
+			"status": "already_cancelled", "state": "already_cancelled",
+			"originalDocumentNumber": documentNumber, "cancellationDocumentNumber": state.stornoNumber,
+			"original":     map[string]any{"documentNumber": documentNumber, "rows": originalRecords},
+			"cancellation": map[string]any{"documentNumber": state.stornoNumber, "rows": state.stornoRecords},
 		}
 		if state.replacementNumber != "" {
 			out["replacementDocumentNumber"] = state.replacementNumber
 		}
 		return printJSON(out)
 	}
-
 	postingDate, err := time.Parse(isoDateFormat, original.PostingDate)
 	if err != nil {
 		return cancelConflict(documentNumber, fmt.Sprintf("cannot parse original postingDate %q", original.PostingDate), nil)
+	}
+
+	periodDate := postingDate
+	if *dateValue != "" {
+		periodDate, err = time.Parse(isoDateFormat, *dateValue)
+		if err != nil {
+			return cancelConflict(documentNumber, fmt.Sprintf("cannot parse cancellation date %q", *dateValue), nil)
+		}
 	}
 	years, err := scopeskill.FetchFiscalYears(client)
 	if err != nil {
 		return cancelVerificationRequired(documentNumber, "active", "", nil, nil, err, nil)
 	}
-	fy, period, ok := scopeskill.FiscalPeriodFor(years, postingDate)
+	fy, period, ok := scopeskill.FiscalPeriodFor(years, periodDate)
 	if !ok {
-		return cancelConflict(documentNumber, fmt.Sprintf("no fiscal period contains postingDate %s", original.PostingDate), nil)
+		return cancelConflict(documentNumber, fmt.Sprintf("no fiscal period contains cancellation date %s", periodDate.Format(isoDateFormat)), nil)
 	}
 	if !fy.Open || !period.Open {
-		return cancelConflict(documentNumber, fmt.Sprintf("fiscal period %q containing postingDate %s is closed", period.Name, original.PostingDate), nil)
+		return cancelConflict(documentNumber, fmt.Sprintf("fiscal period %q containing cancellation date %s is closed", period.Name, periodDate.Format(isoDateFormat)), nil)
 	}
 
 	accounts := map[string]*resolvedAccount{}
@@ -159,32 +196,25 @@ func buchungCancel(client *scopeskill.Client, args []string) error {
 		return cancelVerificationRequired(documentNumber, "active", "", nil, nil, errors.New("/myaccount response lacks the organisation object"), nil)
 	}
 	organisation := map[string]any{"id": org["id"], "name": org["name"]}
-
+	path := "/journal/" + url.PathEscape(documentNumber) + "/cancel"
+	var payload any
+	if rowMode {
+		path = "/posting/cancel"
+		// Scopevisio uses pdeRowNumber only when documentNumber is absent.
+		payload = map[string]any{"documentNumber": documentNumber, "pdeRowNumber": rowNumber}
+		if cancellationDate != "" {
+			payload.(map[string]any)["cancellationDate"] = cancellationDate
+		}
+	}
 	req := writeRequest{
-		Command: "buchung cancel",
-		Method:  http.MethodPost,
-		Path:    "/journal/" + url.PathEscape(documentNumber) + "/cancel",
-		Preview: map[string]any{
-			"state":           "active",
-			"requiredProfile": "Journal (Bearbeiten)",
-			"organisation":    organisation,
-			"fiscalYear":      fy.Name,
-			"fiscalPeriod":    period.Name,
-			"original":        map[string]any{"documentNumber": documentNumber, "rows": originalRecords},
-		},
+		Command: "buchung cancel", Method: http.MethodPost, Path: path, Payload: payload,
+		Preview:       map[string]any{"state": "active", "requiredProfile": "Journal (Bearbeiten)", "organisation": organisation, "fiscalYear": fy.Name, "fiscalPeriod": period.Name, "original": map[string]any{"documentNumber": documentNumber, "rows": originalRecords}, "request": payload},
 		ConfirmPhrase: "cancel " + documentNumber,
 	}
 	writePreview(client, req)
 
 	if *dryRun {
-		return printJSON(map[string]any{
-			"status":                 "dry_run",
-			"state":                  "active",
-			"originalDocumentNumber": documentNumber,
-			"endpoint":               "POST " + req.Path,
-			"organisation":           organisation,
-			"original":               map[string]any{"documentNumber": documentNumber, "rows": originalRecords},
-		})
+		return printJSON(map[string]any{"status": "dry_run", "state": "active", "originalDocumentNumber": documentNumber, "endpoint": "POST " + req.Path, "organisation": organisation, "original": map[string]any{"documentNumber": documentNumber, "rows": originalRecords}, "request": payload})
 	}
 
 	if err := confirmWrite(req, writeOptions{Yes: *yes}); err != nil {

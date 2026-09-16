@@ -232,21 +232,20 @@ Search chronological postings (Buchungen).
   Stdout statuses are `dry_run`, `created`, `already_exists`, `conflict`,
   `verification_required`, and `verification_failed`. All statuses except
   `created` and `already_exists` exit non-zero.
-- `sv-cli buchung cancel <documentNumber> [--dry-run] [--yes]`
-  Cancel one active Buchung via `POST /journal/<documentNumber>/cancel`. The
-  command first reads the complete original, then searches the journal for
-  documents linked through `cancellationNumber` matching the original's shared
-  `pdeRowNumber`: a linked document whose rows are
-  an exact sign reversal of the original counts as the Storno. If a verified
-  Storno already exists the command reports `already_cancelled` and writes
-  nothing, so it is safe to retry. Before writing it checks that the fiscal
-  period is open and all original accounts exist and are active, previews the
-  original rows and the active organisation on stderr, and — unless `--yes` is
-  given — asks a TTY user to type `cancel <documentNumber>`. The write is sent
-  exactly once and success is only reported after the Storno is read back and
-  verified. Stdout statuses: `dry_run`, `cancelled`, `already_cancelled`,
-  `conflict`, `verification_required`; everything except `cancelled`/
-  `already_cancelled` exits non-zero.
+- `sv-cli buchung cancel <documentNumber> [--row=N] [--date=YYYY-MM-DD] [--dry-run] [--yes]`
+  With no row, cancel the complete active Buchung via `POST
+  /journal/<documentNumber>/cancel`. With `--row`, send `documentNumber` and the
+  positive `pdeRowNumber` to `POST /posting/cancel`; optional `--date` supplies
+  `cancellationDate` in the API's `dd.mm.yyyy` format and requires `--row`.
+  Omitting `--date` requests cancellation on today's real date. The command
+  first reads the complete original and performs the same fiscal-period,
+  account, organisation, preview, confirmation, and dry-run safety checks.
+  Whole-document cancellation also searches for documents linked through
+  `cancellationNumber` and verifies an exact sign-reversed Storno, making that
+  mode safe to retry. Confirmation remains `cancel <documentNumber>`.
+  Stdout statuses: `dry_run`, `cancelled`, `already_cancelled`, `conflict`,
+  `verification_required`; everything except `cancelled`/`already_cancelled`
+  exits non-zero.
 - `sv-cli buchung file add <documentNumber> <file> [--dry-run] [--yes]`
   Attach a local Beleg file via `POST
   /journal/<documentNumber>/file/new`. The command reads the file, sends its

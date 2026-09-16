@@ -17,7 +17,6 @@ var dimensionSearchCommand = searchEndpointCommand{
 
 func dimension(client *scopeskill.Client, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintln(cliOutput, "dimension subcommands: search entries")
 		return errors.New("missing dimension subcommand")
 	}
 	switch args[0] {
@@ -25,9 +24,55 @@ func dimension(client *scopeskill.Client, args []string) error {
 		return runSearchEndpointCommand(client, dimensionSearchCommand, args[1:])
 	case "entries":
 		return dimensionEntries(client, args[1:])
+	case "entry":
+		return dimensionEntry(client, args[1:])
 	default:
 		return fmt.Errorf("unknown dimension command: %s", args[0])
 	}
+}
+
+func dimensionEntry(client *scopeskill.Client, args []string) error {
+	if len(args) > 0 && (args[0] == "create" || args[0] == "update") {
+		return dimensionEntryWrite(client, args[1:], args[0])
+	}
+	return errors.New("dimension entry subcommand must be create or update")
+}
+
+func dimensionEntryWrite(client *scopeskill.Client, args []string, operation string) error {
+	flags := flag.NewFlagSet("dimension entry "+operation, flag.ContinueOnError)
+	flags.SetOutput(cliError)
+	number := flags.Int64("number", 0, "dimension entry number")
+	entryName := flags.String("name", "", "dimension entry name")
+	dryRun := flags.Bool("dry-run", false, "preview only; no write")
+	yes := flags.Bool("yes", false, "skip confirmation")
+	if err := flags.Parse(normalizeFlagArgs(args)); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 || *number == 0 || *entryName == "" {
+		return errors.New("dimension entry requires <dimension>, --number and --name")
+	}
+	suffix, status := "/dimensionentry", "updated"
+	if operation == "create" {
+		suffix, status = "/dimensionentry/new", "created"
+	}
+	payload := map[string]any{"number": *number, "name": *entryName, "locked": false}
+	path := "/dimensions/" + url.PathEscape(flags.Arg(0)) + suffix
+	req := writeRequest{Command: "dimension entry " + operation, Method: http.MethodPost, Path: path, Payload: payload, ConfirmPhrase: operation + " dimension entry"}
+	writePreview(client, req)
+	if *dryRun {
+		return printJSON(map[string]any{"status": "dry_run", "endpoint": "POST " + path, "request": payload})
+	}
+	if err := confirmWrite(req, writeOptions{Yes: *yes}); err != nil {
+		return err
+	}
+	result, outcome, err := executeWriteOnce(client, req, func(any) bool { return true })
+	if err != nil {
+		return err
+	}
+	if outcome != writeAccepted {
+		status = "verification_required"
+	}
+	return printJSON(map[string]any{"status": status, "endpoint": "POST " + path, "response": result})
 }
 
 func dimensionEntries(client *scopeskill.Client, args []string) error {

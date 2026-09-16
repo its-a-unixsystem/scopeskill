@@ -237,6 +237,9 @@ _Avoid_: Travel entries
   `sv-cli datev import` sends Local file bytes in the API-required Base64 JSON
   envelope without parsing or validating DATEV EXTF; Scopevisio validation
   error response bodies are preserved in the returned API error.
+- `sv-cli bericht show` writes the `/proreport` JSON response unchanged, while
+  `sv-cli bericht export` writes `/reports/{type}` CSV or PDF bytes unchanged;
+  neither command derives, flattens, or interprets BWA, Bilanz, or GuV content.
 - Teamwork folders are accessed through generic JSON calls in the first implementation.
 - `download <path> --out` is a generic binary GET and is not Teamwork-specific.
 - Teamwork-specific operations that need bespoke flags or formatting (currently only multipart upload) live under the `teamwork` subcommand group, e.g. `sv-cli teamwork upload`.

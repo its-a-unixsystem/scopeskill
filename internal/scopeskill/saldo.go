@@ -189,6 +189,14 @@ func EarliestFiscalYear(years []FiscalYear) (FiscalYear, bool) {
 // synthetic period.
 func FiscalPeriodFor(years []FiscalYear, date time.Time) (FiscalYear, FiscalPeriod, bool) {
 	for _, fy := range years {
+		if len(fy.Periods) > 0 {
+			for _, period := range fy.Periods {
+				if !date.Before(period.Beginning) && !date.After(period.End) {
+					return fy, period, true
+				}
+			}
+			continue
+		}
 		end := fy.End
 		if end.IsZero() {
 			end = FiscalYearEnd(years, fy)
@@ -196,15 +204,7 @@ func FiscalPeriodFor(years []FiscalYear, date time.Time) (FiscalYear, FiscalPeri
 		if fy.Beginning.IsZero() || date.Before(fy.Beginning) || date.After(end) {
 			continue
 		}
-		if len(fy.Periods) == 0 {
-			return fy, FiscalPeriod{Name: fy.Name, Beginning: fy.Beginning, End: end, Open: fy.Open}, true
-		}
-		for _, period := range fy.Periods {
-			if !date.Before(period.Beginning) && !date.After(period.End) {
-				return fy, period, true
-			}
-		}
-		return fy, FiscalPeriod{}, false
+		return fy, FiscalPeriod{Name: fy.Name, Beginning: fy.Beginning, End: end, Open: fy.Open}, true
 	}
 	return FiscalYear{}, FiscalPeriod{}, false
 }

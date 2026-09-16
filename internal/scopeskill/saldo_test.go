@@ -254,6 +254,25 @@ func TestFiscalPeriodForFindsOpenPeriod(t *testing.T) {
 	}
 }
 
+func TestFiscalPeriodForUsesPeriodBoundsWhenYearRangeIsStale(t *testing.T) {
+	years := []FiscalYear{
+		{
+			Name:      "2026",
+			Open:      true,
+			Beginning: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			End:       time.Date(2026, 1, 31, 23, 59, 59, 0, time.UTC),
+			Periods: []FiscalPeriod{
+				{Name: "September 2026", Open: true, Beginning: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), End: time.Date(2026, 9, 30, 23, 59, 59, 0, time.UTC)},
+			},
+		},
+	}
+
+	fiscalYear, period, ok := FiscalPeriodFor(years, time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC))
+	if !ok || fiscalYear.Name != "2026" || period.Name != "September 2026" || !period.Open {
+		t.Fatalf("fiscalYear=%#v period=%#v ok=%v", fiscalYear, period, ok)
+	}
+}
+
 func TestFiscalPeriodForSynthesisesPeriodWhenYearHasNone(t *testing.T) {
 	years := []FiscalYear{
 		{Name: "2025", Open: true, Beginning: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},

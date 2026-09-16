@@ -24,6 +24,9 @@ type postingStub struct {
 	kreditoren            map[string]map[string]any
 	vatKeys               []string
 	journalByID           map[string][]any
+	journalSearchRows     []any
+	journalSearchBodies   []map[string]any
+	journalSearchPages    map[int][]any
 	postingResponse       any
 	postingStatus         int
 	postingDropConnection bool
@@ -33,10 +36,11 @@ type postingStub struct {
 func newPostingStub(t *testing.T) *postingStub {
 	t.Helper()
 	stub := &postingStub{
-		sachkonten:  map[string]map[string]any{},
-		debitoren:   map[string]map[string]any{},
-		kreditoren:  map[string]map[string]any{},
-		journalByID: map[string][]any{},
+		sachkonten:        map[string]map[string]any{},
+		debitoren:         map[string]map[string]any{},
+		kreditoren:        map[string]map[string]any{},
+		journalByID:       map[string][]any{},
+		journalSearchRows: []any{},
 	}
 	searchNumber := func(r *http.Request) string {
 		raw, _ := io.ReadAll(r.Body)
@@ -77,6 +81,20 @@ func newPostingStub(t *testing.T) *postingStub {
 			var records []any
 			for _, key := range stub.vatKeys {
 				records = append(records, map[string]any{"vatKey": key})
+			}
+			writeJSONForCLI(w, map[string]any{"records": records})
+		case r.URL.Path == "/rest/journal" && r.Method == http.MethodPost:
+			raw, _ := io.ReadAll(r.Body)
+			var body map[string]any
+			_ = json.Unmarshal(raw, &body)
+			stub.journalSearchBodies = append(stub.journalSearchBodies, body)
+			records := stub.journalSearchRows
+			if stub.journalSearchPages != nil {
+				page, _ := body["page"].(float64)
+				records = stub.journalSearchPages[int(page)]
+				if records == nil {
+					records = []any{}
+				}
 			}
 			writeJSONForCLI(w, map[string]any{"records": records})
 		case strings.HasPrefix(r.URL.Path, "/rest/journal/") && r.Method == http.MethodGet:
@@ -223,9 +241,13 @@ func TestBuchungCreateDryRun(t *testing.T) {
 }
 
 func matchingJournalRows() []any {
+	return matchingJournalRowsFor("P-2025-1")
+}
+
+func matchingJournalRowsFor(documentNumber string) []any {
 	return []any{
-		map[string]any{"documentNumber": "P-2025-1", "postingDate": float64(1748822400000), "accountNumber": "4400", "debitAmount": 119.0, "creditAmount": 0.0, "vatKey": "U19"},
-		map[string]any{"documentNumber": "P-2025-1", "postingDate": float64(1748822400000), "accountNumber": "1200", "debitAmount": 0.0, "creditAmount": 119.0},
+		map[string]any{"documentNumber": documentNumber, "postingDate": float64(1748822400000), "accountNumber": "4400", "debitAmount": 119.0, "creditAmount": 0.0, "vatKey": "U19"},
+		map[string]any{"documentNumber": documentNumber, "postingDate": float64(1748822400000), "accountNumber": "1200", "debitAmount": 0.0, "creditAmount": 119.0},
 	}
 }
 
@@ -404,6 +426,117 @@ func TestBuchungCreateYesHappyPath(t *testing.T) {
 	}
 }
 
+func TestBuchungCreateUsesProviderAssignedDocumentNumber(t *testing.T) {
+	stub := newHappyPostingStub(t)
+	assignedDocumentNumber := "2026-000167"
+	assignedRows := matchingJournalRowsFor(assignedDocumentNumber)
+	stub.afterWrite = func() {
+		stub.journalSearchRows = assignedRows
+		stub.journalByID[assignedDocumentNumber] = assignedRows
+	}
+	configPath := postingConfigPath(t, stub.server.URL)
+	dataPath := postingFixture(t, validPostingInput)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "buchung", "create", "--data", "@" + dataPath, "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	got := stdoutStatus(t, output.String())
+	if got["status"] != "created" || got["documentNumber"] != assignedDocumentNumber || got["requestedDocumentNumber"] != "P-2025-1" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if stub.writeCount() != 1 {
+		t.Fatalf("writes = %d", stub.writeCount())
+	}
+	if len(stub.journalSearchBodies) != 2 {
+		t.Fatalf("journal searches = %#v", stub.journalSearchBodies)
+	}
+	assignedReadBack := false
+	for _, hit := range stub.hits {
+		if hit == "GET /rest/journal/"+assignedDocumentNumber {
+			assignedReadBack = true
+		}
+	}
+	if !assignedReadBack {
+		t.Fatalf("hits = %#v", stub.hits)
+	}
+}
+
+func TestBuchungCreateFindsProviderAssignedDuplicate(t *testing.T) {
+	stub := newHappyPostingStub(t)
+	assignedDocumentNumber := "2026-000167"
+	assignedRows := matchingJournalRowsFor(assignedDocumentNumber)
+	stub.journalSearchRows = assignedRows
+	stub.journalByID[assignedDocumentNumber] = assignedRows
+	configPath := postingConfigPath(t, stub.server.URL)
+	dataPath := postingFixture(t, validPostingInput)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "buchung", "create", "--data", "@" + dataPath, "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	got := stdoutStatus(t, output.String())
+	if got["status"] != "already_exists" || got["documentNumber"] != assignedDocumentNumber || got["requestedDocumentNumber"] != "P-2025-1" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if stub.writeCount() != 0 {
+		t.Fatalf("writes = %d", stub.writeCount())
+	}
+}
+
+func TestBuchungCreateDoesNotWriteWhenAssignedDuplicateCannotBeReadBack(t *testing.T) {
+	stub := newHappyPostingStub(t)
+	assignedDocumentNumber := "2026-000167"
+	assignedRows := matchingJournalRowsFor(assignedDocumentNumber)
+	stub.journalSearchRows = assignedRows
+	configPath := postingConfigPath(t, stub.server.URL)
+	dataPath := postingFixture(t, validPostingInput)
+	withCLI(t, "", false)
+
+	err := run([]string{"--config", configPath, "buchung", "create", "--data", "@" + dataPath, "--yes"})
+	if err == nil || !strings.Contains(err.Error(), "could not be read back") {
+		t.Fatalf("error = %v", err)
+	}
+	if stub.writeCount() != 0 {
+		t.Fatalf("writes = %d", stub.writeCount())
+	}
+}
+
+func TestBuchungCreatePaginatesAssignedDuplicateSearch(t *testing.T) {
+	stub := newHappyPostingStub(t)
+	firstPage := make([]any, 0, scopeskill.MaxSearchPageSize)
+	for range scopeskill.MaxSearchPageSize {
+		firstPage = append(firstPage, map[string]any{
+			"documentNumber": "unrelated",
+			"postingDate":    float64(1748822400000),
+			"accountNumber":  "9999",
+			"debitAmount":    1.0,
+			"creditAmount":   0.0,
+		})
+	}
+	assignedDocumentNumber := "2026-000167"
+	assignedRows := matchingJournalRowsFor(assignedDocumentNumber)
+	stub.journalSearchPages = map[int][]any{0: firstPage, 1: assignedRows}
+	stub.journalByID[assignedDocumentNumber] = assignedRows
+	configPath := postingConfigPath(t, stub.server.URL)
+	dataPath := postingFixture(t, validPostingInput)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "buchung", "create", "--data", "@" + dataPath, "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	got := stdoutStatus(t, output.String())
+	if got["status"] != "already_exists" || got["documentNumber"] != assignedDocumentNumber {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if stub.writeCount() != 0 {
+		t.Fatalf("writes = %d", stub.writeCount())
+	}
+	if len(stub.journalSearchBodies) != 2 {
+		t.Fatalf("journal searches = %#v", stub.journalSearchBodies)
+	}
+}
+
 func TestBuchungCreateIdenticalDuplicateAlreadyExists(t *testing.T) {
 	stub := newHappyPostingStub(t)
 	stub.journalByID["P-2025-1"] = matchingJournalRows()
@@ -483,6 +616,28 @@ func TestBuchungCreateAmbiguousResponseRequiresVerification(t *testing.T) {
 	}
 }
 
+func TestBuchungCreateAcceptedWriteWithoutJournalRequiresVerification(t *testing.T) {
+	stub := newHappyPostingStub(t)
+	configPath := postingConfigPath(t, stub.server.URL)
+	dataPath := postingFixture(t, validPostingInput)
+	output, _ := withCLI(t, "", false)
+
+	err := run([]string{"--config", configPath, "buchung", "create", "--data", "@" + dataPath, "--yes"})
+	if err == nil || !strings.Contains(err.Error(), "provider-assigned documentNumber not found") {
+		t.Fatalf("error = %v", err)
+	}
+	got := stdoutStatus(t, output.String())
+	if got["status"] != "verification_required" || got["documentNumber"] != "P-2025-1" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if _, present := got["requestedDocumentNumber"]; present {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if stub.writeCount() != 1 {
+		t.Fatalf("writes = %d", stub.writeCount())
+	}
+}
+
 func TestBuchungCreateDroppedConnectionVerifiesViaJournal(t *testing.T) {
 	stub := newHappyPostingStub(t)
 	stub.postingDropConnection = true
@@ -496,6 +651,31 @@ func TestBuchungCreateDroppedConnectionVerifiesViaJournal(t *testing.T) {
 	}
 	got := stdoutStatus(t, output.String())
 	if got["status"] != "created" || got["writeResponse"] != "ambiguous" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if stub.writeCount() != 1 {
+		t.Fatalf("writes = %d", stub.writeCount())
+	}
+}
+
+func TestBuchungCreateDroppedConnectionUsesProviderAssignedDocumentNumber(t *testing.T) {
+	stub := newHappyPostingStub(t)
+	stub.postingDropConnection = true
+	assignedDocumentNumber := "2026-000167"
+	assignedRows := matchingJournalRowsFor(assignedDocumentNumber)
+	stub.afterWrite = func() {
+		stub.journalSearchRows = assignedRows
+		stub.journalByID[assignedDocumentNumber] = assignedRows
+	}
+	configPath := postingConfigPath(t, stub.server.URL)
+	dataPath := postingFixture(t, validPostingInput)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "buchung", "create", "--data", "@" + dataPath, "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	got := stdoutStatus(t, output.String())
+	if got["status"] != "created" || got["documentNumber"] != assignedDocumentNumber || got["requestedDocumentNumber"] != "P-2025-1" || got["writeResponse"] != "ambiguous" {
 		t.Fatalf("stdout = %s", output.String())
 	}
 	if stub.writeCount() != 1 {
@@ -521,5 +701,32 @@ func TestBuchungCreateVerificationMismatchFails(t *testing.T) {
 	}
 	if got := stdoutStatus(t, output.String()); got["status"] != "verification_failed" {
 		t.Fatalf("stdout = %s", output.String())
+	}
+}
+
+func TestBuchungCreateProviderAssignedVerificationMismatchReportsBothNumbers(t *testing.T) {
+	stub := newHappyPostingStub(t)
+	assignedDocumentNumber := "2026-000167"
+	assignedRows := matchingJournalRowsFor(assignedDocumentNumber)
+	mismatchedRows := matchingJournalRowsFor(assignedDocumentNumber)
+	mismatchedRows[0].(map[string]any)["debitAmount"] = 100.0
+	stub.afterWrite = func() {
+		stub.journalSearchRows = assignedRows
+		stub.journalByID[assignedDocumentNumber] = mismatchedRows
+	}
+	configPath := postingConfigPath(t, stub.server.URL)
+	dataPath := postingFixture(t, validPostingInput)
+	output, _ := withCLI(t, "", false)
+
+	err := run([]string{"--config", configPath, "buchung", "create", "--data", "@" + dataPath, "--yes"})
+	if err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("error = %v", err)
+	}
+	got := stdoutStatus(t, output.String())
+	if got["status"] != "verification_failed" || got["documentNumber"] != assignedDocumentNumber || got["requestedDocumentNumber"] != "P-2025-1" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if stub.writeCount() != 1 {
+		t.Fatalf("writes = %d", stub.writeCount())
 	}
 }

@@ -62,6 +62,11 @@ Search and inspect the master directory.
 
 Accounting commands query the ledger (`Journal`), accounts (`Sachkonto`, `Debitor`, `Kreditor`), and open items (`Offene Posten`).
 
+`balance` queries SuSa first. If SuSa omits an inactive account, `sv-cli`
+checks master data and returns a zeroed Saldo for an existing account; a
+missing account returns `<type> <number> not found`. `show` keeps inactive
+Saldo fields as `null` so callers can distinguish no activity from net zero.
+
 ### `sachkonto`
 
 Search and inspect impersonal G/L accounts.

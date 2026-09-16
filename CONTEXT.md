@@ -108,6 +108,22 @@ _Avoid_: Customer account when the **Kontakt** is meant
 An accounts-payable Konto attached to exactly one **Kontakt**, receiving postings for supplier-side transactions.
 _Avoid_: Vendor account when the **Kontakt** is meant
 
+**Sammelkonto**:
+The impersonal G/L account (**Sachkonto**) linked to a **Debitor** or **Kreditor** where aggregate subledger balances are posted in the General Ledger.
+_Avoid_: Collective account, summary account
+
+**SuSa**:
+The Scopevisio Summen- und Saldenliste report providing aggregate opening balances, debit/credit totals, and closing balances for accounts over a date range.
+_Avoid_: Trial balance, balance sheet
+
+**Saldo**:
+The balance figures of an account over a specified date range, sourced from the **SuSa**.
+_Avoid_: Account balance
+
+**Nummernkreis**:
+A configured sequential number range in Scopevisio from which **Debitor**, **Kreditor**, or **Beleg** numbers are automatically generated.
+_Avoid_: Number range, account range
+
 **Buchung**:
 A single posting in the **Journal**: at minimum a Soll/Haben pair on Konten with an amount and a Buchungsdatum, plus optional Steuerschlüssel and Dimensionen.
 _Avoid_: Posting line, journal entry
@@ -196,10 +212,13 @@ _Avoid_: Open invoices, OPs
 - The first **Unternehmen probe** is **SKR** detection, which queries `/impersonalaccounts` for `4400` (→ `SKR04`) and `8400` (→ `SKR03`), falling back to a TTY prompt when the chart is custom.
 - No `SCOPESKILL_*` environment override is exposed for **Unternehmen** attributes such as `SKR`, because they pair with `CUSTOMER` and `REST_REFRESH_TOKEN`; switch identity wholesale via `--config` (consistent with ADR-0004).
 - A **Debitor** and a **Kreditor** each link to exactly one **Kontakt**; a **Sachkonto** does not.
+- A **Debitor** or **Kreditor** is assigned a **Sammelkonto** (**Sachkonto**) where aggregate subledger balances accumulate in the general ledger.
+- A **Debitor** or **Kreditor** account number is assigned either explicitly or generated automatically from a configured **Nummernkreis**.
 - A **Buchung** belongs to exactly one **Journal** (per Fiskaljahr) and references one or more Konten (Sachkonto, Debitor, or Kreditor).
 - A **Buchung** can have one attached **Beleg** file. `buchung file add` attaches a **Local file**; `buchung file get` retrieves it with optional invoice stamps.
 - An **Offene Posten** entry references the **Beleg** that originated it and the **Kontakt** owning the **Debitor** or **Kreditor** side.
 - The **`sv-cli`** stitches data on `show`-style commands when the second piece is reliably co-requested, but never on list-style commands (N+1 risk) and never derives business answers (see ADR-0006).
+- Scopevisio's **SuSa** omits accounts that have no postings or carryover in the queried date range; **Saldo** queries synthesize a zeroed record for an existing account rather than treating omission as an error.
 
 ## Example dialogue
 

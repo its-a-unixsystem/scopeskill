@@ -12,6 +12,9 @@ dist/
 # AI stuff
 .claude/
 .agents/
+.devin/
+.windsurf/
 
 .gemini/
 gha-creds-*.json
+skills-lock.json

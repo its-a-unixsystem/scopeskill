@@ -16,6 +16,7 @@ type cancelStub struct {
 	hits                 []string
 	journalSearchBodies  []map[string]any
 	cancelWrites         int
+	postingCancelBody    map[string]any
 	journalByID          map[string][]any
 	linkedRows           []any
 	linkageStatus        int
@@ -89,6 +90,15 @@ func newCancelStub(t *testing.T) *cancelStub {
 				return
 			}
 			writeJSONForCLI(w, map[string]any{"records": stub.linkedRows})
+		case r.URL.Path == "/rest/posting/cancel" && r.Method == http.MethodPost:
+			stub.cancelWrites++
+			if err := json.NewDecoder(r.Body).Decode(&stub.postingCancelBody); err != nil {
+				t.Errorf("decode posting cancel: %v", err)
+			}
+			if stub.afterCancelWrite != nil {
+				stub.afterCancelWrite()
+			}
+			writeJSONForCLI(w, stub.cancelResponse)
 		case strings.HasPrefix(r.URL.Path, "/rest/journal/") && strings.HasSuffix(r.URL.Path, "/cancel") && r.Method == http.MethodPost:
 			stub.cancelWrites++
 			if stub.afterCancelWrite != nil {
@@ -275,6 +285,38 @@ func TestBuchungCancelDryRun(t *testing.T) {
 	}
 	if stub.cancelWrites != 0 {
 		t.Fatalf("cancel writes = %d", stub.cancelWrites)
+	}
+}
+func TestBuchungCancelRowDateDryRun(t *testing.T) {
+	stub := newHappyCancelStub(t)
+	configPath := postingConfigPath(t, stub.server.URL)
+	output, stderr := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "buchung", "cancel", "P-2025-1", "--row=9001", "--date=2025-06-03", "--dry-run", "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	got := stdoutStatus(t, output.String())
+	request := got["request"].(map[string]any)
+	if got["endpoint"] != "POST /posting/cancel" || request["documentNumber"] != "P-2025-1" || request["pdeRowNumber"] != float64(9001) || request["cancellationDate"] != "03.06.2025" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if !strings.Contains(stderr.String(), `"cancellationDate": "03.06.2025"`) || stub.cancelWrites != 0 {
+		t.Fatalf("stderr=%q writes=%d", stderr.String(), stub.cancelWrites)
+	}
+}
+
+func TestBuchungCancelRowDateValidationMakesNoRequests(t *testing.T) {
+	stub := newHappyCancelStub(t)
+	configPath := postingConfigPath(t, stub.server.URL)
+	for _, args := range [][]string{{"--date=2025-06-03"}, {"--row=0"}, {"--row=x"}, {"--row=1", "--date=2025-02-30"}} {
+		_, _ = withCLI(t, "", false)
+		command := append([]string{"--config", configPath, "buchung", "cancel", "P-2025-1"}, args...)
+		if err := run(command); err == nil {
+			t.Fatalf("run(%v) succeeded", args)
+		}
+	}
+	if len(stub.hits) != 0 {
+		t.Fatalf("validation made requests: %#v", stub.hits)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 const buchungCreateUsage = `usage: sv-cli buchung create --data @buchung.json [--dry-run] [--yes]
 
 Input schema (--data JSON or @file):
-  documentNumber            required; caller-supplied unique Belegnummer
+  documentNumber            required request identifier (Scopevisio can assign a different Belegnummer)
   postingDate               required; YYYY-MM-DD
   documentDate              optional; YYYY-MM-DD
   externalDocumentNumber    optional
@@ -40,7 +41,12 @@ Safety:
 
 Statuses on stdout: dry_run, created, already_exists, conflict,
 verification_required, verification_failed. Any status other than created or
-already_exists exits non-zero.`
+already_exists exits non-zero. documentNumber contains the final Scopevisio
+number. requestedDocumentNumber contains the input number when they differ.`
+
+const providerPostingDiscoveryLookback = time.Minute
+
+var errProviderDocumentNotFound = errors.New("provider-assigned documentNumber not found")
 
 type resolvedAccount struct {
 	record   map[string]any
@@ -126,12 +132,13 @@ func buchungCreate(client *scopeskill.Client, args []string) error {
 		return err
 	}
 
-	existingRecords, err := fetchJournalRecords(client, in.DocumentNumber)
-	if err != nil {
-		return err
-	}
 	expected := in.Canonical()
 	allowGenerated := in.AutoCreateTax != nil && *in.AutoCreateTax
+	reconciledExpected, existingRecords, err := fetchReconciledBuchung(client, expected, allowGenerated, time.Time{})
+	if err != nil && !errors.Is(err, errProviderDocumentNotFound) {
+		return err
+	}
+	expected = reconciledExpected
 	var actual scopeskill.CanonicalBuchung
 	var diff scopeskill.BuchungDiff
 	exists := len(existingRecords) > 0
@@ -157,22 +164,18 @@ func buchungCreate(client *scopeskill.Client, args []string) error {
 	writePreview(client, req)
 
 	if exists && diff.Equal() {
-		return printJSON(map[string]any{
-			"status":         "already_exists",
-			"documentNumber": in.DocumentNumber,
-			"journal":        map[string]any{"rows": actual.Rows},
-			"generated":      diff.Generated,
-		})
+		out := buchungStatusOutput("already_exists", expected.DocumentNumber, in.DocumentNumber)
+		out["journal"] = map[string]any{"rows": actual.Rows}
+		out["generated"] = diff.Generated
+		return printJSON(out)
 	}
 	if exists {
-		_ = printJSON(map[string]any{
-			"status":         "conflict",
-			"documentNumber": in.DocumentNumber,
-			"expected":       expected,
-			"actual":         actual,
-			"diff":           diff,
-		})
-		return fmt.Errorf("documentNumber %s already exists with different rows; no write performed", in.DocumentNumber)
+		out := buchungStatusOutput("conflict", expected.DocumentNumber, in.DocumentNumber)
+		out["expected"] = expected
+		out["actual"] = actual
+		out["diff"] = diff
+		_ = printJSON(out)
+		return fmt.Errorf("documentNumber %s already exists with different rows; no write performed", expected.DocumentNumber)
 	}
 
 	if *dryRun {
@@ -188,14 +191,15 @@ func buchungCreate(client *scopeskill.Client, args []string) error {
 		return err
 	}
 
+	createdSince := time.Now().Add(-providerPostingDiscoveryLookback)
 	result, outcome, writeErr := executeWriteOnce(client, req, acceptPostingsNewResponse)
 	switch outcome {
 	case writeRejected:
 		return writeErr
 	case writeAccepted:
-		return verifyCreatedBuchung(client, expected, payload, result, allowGenerated)
+		return verifyCreatedBuchung(client, expected, payload, result, allowGenerated, createdSince)
 	default:
-		return recoverAmbiguousWrite(client, expected, payload, result, allowGenerated, writeErr)
+		return recoverAmbiguousWrite(client, expected, payload, result, allowGenerated, writeErr, createdSince)
 	}
 }
 
@@ -288,21 +292,111 @@ func acceptPostingsNewResponse(result any) bool {
 	return !present || fmt.Sprint(update) == "0"
 }
 
-func createdOutput(expected scopeskill.CanonicalBuchung, payload scopeskill.PostingsRequest, result any, records []any, diff scopeskill.BuchungDiff) map[string]any {
-	return map[string]any{
-		"status":         "created",
-		"documentNumber": expected.DocumentNumber,
-		"endpoint":       "POST /postings/new",
-		"request":        payload,
-		"response":       result,
-		"journal":        map[string]any{"rows": records},
-		"generated":      diff.Generated,
+func buchungStatusOutput(status, documentNumber, requestedDocumentNumber string) map[string]any {
+	out := map[string]any{
+		"status":         status,
+		"documentNumber": documentNumber,
+	}
+	if requestedDocumentNumber != documentNumber {
+		out["requestedDocumentNumber"] = requestedDocumentNumber
+	}
+	return out
+}
+
+func createdOutput(expected scopeskill.CanonicalBuchung, requestedDocumentNumber string, payload scopeskill.PostingsRequest, result any, records []any, diff scopeskill.BuchungDiff) map[string]any {
+	out := buchungStatusOutput("created", expected.DocumentNumber, requestedDocumentNumber)
+	out["endpoint"] = "POST /postings/new"
+	out["request"] = payload
+	out["response"] = result
+	out["journal"] = map[string]any{"rows": records}
+	out["generated"] = diff.Generated
+	return out
+}
+
+func discoverCreatedDocumentNumber(client *scopeskill.Client, expected scopeskill.CanonicalBuchung, allowGenerated bool, createdSince time.Time) (string, error) {
+	postingDate, err := time.Parse(isoDateFormat, expected.PostingDate)
+	if err != nil {
+		return "", err
+	}
+	request := scopeskill.SearchRequest{
+		Fields: append([]string{}, journalSearchDefaultFields...),
+	}
+	records, err := scopeskill.Paginate(scopeskill.PaginateOptions{All: true}, request, func(body map[string]any) ([]any, error) {
+		if !createdSince.IsZero() {
+			body["createdSince"] = createdSince.UnixMilli()
+		}
+		body["postingDateSince"] = postingDate.UnixMilli()
+		body["postingDateBefore"] = postingDate.AddDate(0, 0, 1).UnixMilli()
+		raw, err := client.JSON(http.MethodPost, "/journal", body, nil)
+		if err != nil {
+			return nil, err
+		}
+		return scopeskill.RecordsFromResponse(raw)
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(records) >= scopeskill.DefaultMaxResults {
+		return "", fmt.Errorf("journal search reached the %d-record safety cap while reconciling documentNumber %s", scopeskill.DefaultMaxResults, expected.DocumentNumber)
+	}
+	rowsByDocumentNumber := map[string][]any{}
+	for _, item := range records {
+		record, _ := item.(map[string]any)
+		documentNumber := nonEmptyString(record["documentNumber"])
+		if documentNumber != "" {
+			rowsByDocumentNumber[documentNumber] = append(rowsByDocumentNumber[documentNumber], item)
+		}
+	}
+	var matches []string
+	for documentNumber, rows := range rowsByDocumentNumber {
+		actual, err := scopeskill.CanonicalFromJournal(rows)
+		if err != nil {
+			continue
+		}
+		candidate := expected
+		candidate.DocumentNumber = documentNumber
+		if scopeskill.CompareBuchung(candidate, actual, allowGenerated).Equal() {
+			matches = append(matches, documentNumber)
+		}
+	}
+	sort.Strings(matches)
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("%w for requested documentNumber %s", errProviderDocumentNotFound, expected.DocumentNumber)
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("multiple provider-assigned documentNumbers match requested documentNumber %s: %s", expected.DocumentNumber, strings.Join(matches, ", "))
 	}
 }
 
-func verifyCreatedBuchung(client *scopeskill.Client, expected scopeskill.CanonicalBuchung, payload scopeskill.PostingsRequest, result any, allowGenerated bool) error {
+func fetchReconciledBuchung(client *scopeskill.Client, expected scopeskill.CanonicalBuchung, allowGenerated bool, createdSince time.Time) (scopeskill.CanonicalBuchung, []any, error) {
 	records, err := fetchJournalRecords(client, expected.DocumentNumber)
+	if err != nil || len(records) > 0 {
+		return expected, records, err
+	}
+	assignedDocumentNumber, err := discoverCreatedDocumentNumber(client, expected, allowGenerated, createdSince)
 	if err != nil {
+		return expected, nil, err
+	}
+	expected.DocumentNumber = assignedDocumentNumber
+	records, err = fetchJournalRecords(client, assignedDocumentNumber)
+	if err != nil {
+		return expected, nil, err
+	}
+	if len(records) == 0 {
+		return expected, nil, fmt.Errorf("provider-assigned documentNumber %s was found but could not be read back", assignedDocumentNumber)
+	}
+	return expected, records, nil
+}
+
+func verifyCreatedBuchung(client *scopeskill.Client, expected scopeskill.CanonicalBuchung, payload scopeskill.PostingsRequest, result any, allowGenerated bool, createdSince time.Time) error {
+	requestedDocumentNumber := expected.DocumentNumber
+	expected, records, err := fetchReconciledBuchung(client, expected, allowGenerated, createdSince)
+	if err != nil {
+		out := buchungStatusOutput("verification_required", expected.DocumentNumber, requestedDocumentNumber)
+		out["response"] = result
+		_ = printJSON(out)
 		return err
 	}
 	actual, err := scopeskill.CanonicalFromJournal(records)
@@ -311,40 +405,37 @@ func verifyCreatedBuchung(client *scopeskill.Client, expected scopeskill.Canonic
 	}
 	diff := scopeskill.CompareBuchung(expected, actual, allowGenerated)
 	if !diff.Equal() {
-		_ = printJSON(map[string]any{
-			"status":         "verification_failed",
-			"documentNumber": expected.DocumentNumber,
-			"response":       result,
-			"expected":       expected,
-			"actual":         actual,
-			"diff":           diff,
-		})
+		out := buchungStatusOutput("verification_failed", expected.DocumentNumber, requestedDocumentNumber)
+		out["response"] = result
+		out["expected"] = expected
+		out["actual"] = actual
+		out["diff"] = diff
+		_ = printJSON(out)
 		return errors.New("post-write journal does not match the requested Buchung")
 	}
-	return printJSON(createdOutput(expected, payload, result, records, diff))
+	return printJSON(createdOutput(expected, requestedDocumentNumber, payload, result, records, diff))
 }
 
-func recoverAmbiguousWrite(client *scopeskill.Client, expected scopeskill.CanonicalBuchung, payload scopeskill.PostingsRequest, result any, allowGenerated bool, writeErr error) error {
+func recoverAmbiguousWrite(client *scopeskill.Client, expected scopeskill.CanonicalBuchung, payload scopeskill.PostingsRequest, result any, allowGenerated bool, writeErr error, createdSince time.Time) error {
+	requestedDocumentNumber := expected.DocumentNumber
 	writeError := ""
 	if writeErr != nil {
 		writeError = writeErr.Error()
 	}
-	records, err := fetchJournalRecords(client, expected.DocumentNumber)
+	expected, records, err := fetchReconciledBuchung(client, expected, allowGenerated, createdSince)
 	if err == nil && len(records) > 0 {
 		if actual, err := scopeskill.CanonicalFromJournal(records); err == nil {
 			if diff := scopeskill.CompareBuchung(expected, actual, allowGenerated); diff.Equal() {
-				out := createdOutput(expected, payload, result, records, diff)
+				out := createdOutput(expected, requestedDocumentNumber, payload, result, records, diff)
 				out["writeResponse"] = "ambiguous"
 				out["writeError"] = writeError
 				return printJSON(out)
 			}
 		}
 	}
-	_ = printJSON(map[string]any{
-		"status":         "verification_required",
-		"documentNumber": expected.DocumentNumber,
-		"writeError":     writeError,
-		"response":       result,
-	})
+	out := buchungStatusOutput("verification_required", expected.DocumentNumber, requestedDocumentNumber)
+	out["writeError"] = writeError
+	out["response"] = result
+	_ = printJSON(out)
 	return fmt.Errorf("write response ambiguous for documentNumber %s; verify manually before retrying", expected.DocumentNumber)
 }

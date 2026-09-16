@@ -180,15 +180,21 @@ Search chronological postings (Buchungen).
   }
   ```
 
-  `summaryAccount` is required on rows posting to a Personenkonto. The command
-  runs read-only preflight checks (fiscal period open, accounts exist and are
-  active, vatKey exists in the Steuermatrix, documentNumber not already booked),
-  prints the exact payload to stderr, and — unless `--yes` is given — asks a TTY
-  user to type `create <documentNumber>`. Without `--yes` and without a TTY it
-  fails before writing. The write is issued exactly once and verified against
-  the journal afterwards. Stdout statuses: `dry_run`, `created`,
-  `already_exists`, `conflict`, `verification_required`, `verification_failed`;
-  everything except `created`/`already_exists` exits non-zero.
+  `summaryAccount` is required on rows that post to a Personenkonto. The command
+  runs read-only preflight checks for the fiscal period, accounts, tax keys, and
+  duplicate Buchungen. It searches the Journal for identical Buchungen when
+  Scopevisio assigned a different document number. The command prints the exact
+  payload to stderr. Without `--yes`, a TTY user must type `create
+  <documentNumber>`. Without a TTY, the command fails before the write. The
+  command sends the write exactly once and reads the final Buchung from the
+  Journal before it reports success.
+
+  Scopevisio can replace the requested `documentNumber` with an assigned number.
+  In stdout, `documentNumber` contains the assigned number. The optional
+  `requestedDocumentNumber` contains the input number when the numbers differ.
+  Stdout statuses are `dry_run`, `created`, `already_exists`, `conflict`,
+  `verification_required`, and `verification_failed`. All statuses except
+  `created` and `already_exists` exit non-zero.
 - `sv-cli buchung cancel <documentNumber> [--dry-run] [--yes]`
   Cancel one active Buchung via `POST /journal/<documentNumber>/cancel`. The
   command first reads the complete original, then searches the journal for

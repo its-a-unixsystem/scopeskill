@@ -45,6 +45,13 @@ var (
 
 var personalAccountSearchDefaultFields = []string{"number", "name", "active", "contactId"}
 
+var personalAccountReadbackFields = []string{
+	"number", "name", "active", "contactId",
+	"externalNumber", "sumAccountNumber", "numberRangeNumber", "group",
+	"vatCode", "paymentType", "vatNumber", "vatId", "currency", "language",
+	"paymentTermId", "paymentTermForm",
+}
+
 var personalAccountKontaktFields = []string{
 	"id", "lastname", "companyname", "firstname", "email", "debitorNumber", "kreditorNumber",
 }
@@ -59,7 +66,7 @@ func kreditor(client *scopeskill.Client, args []string) error {
 
 func personalAccount(client *scopeskill.Client, kind personalAccountKind, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintf(cliOutput, "%s subcommands: search show balance journal bank-connections create\n", kind.command)
+		fmt.Fprintf(cliOutput, "%s subcommands: search show balance journal bank-connections create update\n", kind.command)
 		return fmt.Errorf("missing %s subcommand", kind.command)
 	}
 	switch args[0] {
@@ -75,6 +82,8 @@ func personalAccount(client *scopeskill.Client, kind personalAccountKind, args [
 		return personalAccountBankConnections(client, kind, args[1:])
 	case "create":
 		return personalAccountCreate(client, kind, args[1:])
+	case "update":
+		return personalAccountUpdate(client, kind, args[1:])
 	default:
 		return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
 	}
@@ -237,6 +246,87 @@ func personalAccountCreate(client *scopeskill.Client, kind personalAccountKind, 
 		"contactId":    contactID,
 		kind.outputKey: account,
 		"kontakt":      createdKontakt,
+	})
+}
+
+func personalAccountUpdateUsage(kind personalAccountKind) string {
+	return fmt.Sprintf(`usage: sv-cli %s update <accountNumber> --file=changes.json [--dry-run] [--yes]
+
+Updates the %s via POST %s/<accountNumber>.
+
+The file must contain one JSON object using the UpdatePersonalAccountForm schema.
+
+Safety:
+  --dry-run   preview only; no write
+  --yes       bypass the interactive "update %s <accountNumber>" confirmation`, kind.command, kind.command, kind.searchEndpoint, kind.command)
+}
+
+func personalAccountUpdate(client *scopeskill.Client, kind personalAccountKind, args []string) error {
+	flags := flag.NewFlagSet(kind.command+" update", flag.ContinueOnError)
+	flags.SetOutput(cliError)
+	file := flags.String("file", "", "path to UpdatePersonalAccountForm JSON")
+	dryRun := flags.Bool("dry-run", false, "preview only; no write")
+	yes := flags.Bool("yes", false, "skip the interactive confirmation")
+	flags.Usage = func() { fmt.Fprintln(cliError, personalAccountUpdateUsage(kind)) }
+	if err := flags.Parse(normalizeFlagArgs(args)); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 || *file == "" {
+		flags.Usage()
+		return fmt.Errorf("%s update requires one accountNumber and --file", kind.command)
+	}
+
+	number := flags.Arg(0)
+	body, err := loadJSONObject("@" + *file)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return errors.New("update file must contain at least one modification")
+	}
+
+	path := kind.searchEndpoint + "/" + url.PathEscape(number)
+	req := writeRequest{
+		Command:       kind.command + " update",
+		Method:        http.MethodPost,
+		Path:          path,
+		Payload:       body,
+		ConfirmPhrase: fmt.Sprintf("update %s %s", kind.command, number),
+	}
+	writePreview(client, req)
+	if *dryRun {
+		return printJSON(map[string]any{
+			"status":   "dry_run",
+			"endpoint": "POST " + path,
+			"request":  body,
+		})
+	}
+	if err := confirmWrite(req, writeOptions{Yes: *yes}); err != nil {
+		return err
+	}
+	result, outcome, writeErr := executeWriteOnce(client, req, func(any) bool { return true })
+	if outcome == writeRejected {
+		return writeErr
+	}
+	if outcome == writeAmbiguous {
+		_ = printJSON(map[string]any{"status": "verification_required", "response": result})
+		if writeErr != nil {
+			return fmt.Errorf("%s %s update could not be verified: %w", kind.command, number, writeErr)
+		}
+		return fmt.Errorf("%s %s update could not be verified", kind.command, number)
+	}
+
+	account, err := fetchPersonalAccountByNumberWithFields(client, kind, number, personalAccountReadbackFields)
+	if err != nil {
+		return err
+	}
+	if account == nil {
+		return fmt.Errorf("updated %s %s could not be read back", kind.command, number)
+	}
+	return printJSON(map[string]any{
+		"status":       "updated",
+		"number":       number,
+		kind.outputKey: account,
 	})
 }
 
@@ -413,9 +503,13 @@ func kontaktDisplayName(kontakt map[string]any) string {
 }
 
 func fetchPersonalAccountByNumber(client *scopeskill.Client, kind personalAccountKind, number string) (map[string]any, error) {
+	return fetchPersonalAccountByNumberWithFields(client, kind, number, personalAccountSearchDefaultFields)
+}
+
+func fetchPersonalAccountByNumberWithFields(client *scopeskill.Client, kind personalAccountKind, number string, fields []string) (map[string]any, error) {
 	req := scopeskill.SearchRequest{
 		PageSize: 1,
-		Fields:   append([]string{}, personalAccountSearchDefaultFields...),
+		Fields:   append([]string{}, fields...),
 		Conditions: []scopeskill.SearchCondition{
 			{Field: "number", Operator: scopeskill.OpEquals, Value: number},
 		},

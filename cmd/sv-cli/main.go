@@ -700,8 +700,8 @@ commands:
   teamwork          Teamwork-specific operations
   sachkonto         search and inspect Sachkonten
   kontakt           search, inspect, and create Kontakte (master directory)
-  debitor           search, inspect, and create Debitoren
-  kreditor          search, inspect, and create Kreditoren
+  debitor           search, inspect, create, and update Debitoren
+  kreditor          search, inspect, create, and update Kreditoren
   personenkonto     search personal account Journal entries
   buchhaltung       inspect accounting configuration
   dimension         search dimensions and inspect entries

@@ -108,6 +108,14 @@ Search and inspect personal accounts linked to a Kontakt.
   writing when the account is already linked. Otherwise it previews the
   request and requires `--yes` or `create <kind> <contact-id>`. Created and
   existing results stitch the personal account and Kontakt into stdout.
+- `sv-cli debitor update <Kontonummer> --file=changes.json [--dry-run] [--yes]` /
+  `sv-cli kreditor update <Kontonummer> --file=changes.json [--dry-run] [--yes]`
+  Update a personal account via `POST /debitoraccounts/<Kontonummer>` or
+  `POST /kreditoraccounts/<Kontonummer>`. The file must contain one
+  `UpdatePersonalAccountForm` JSON object; individual property flags are not
+  supported. The command previews the exact payload, requires `--yes` or
+  `update <kind> <Kontonummer>`, sends the write once, and reads the full
+  account state back before reporting `updated`. `--dry-run` does not write.
 
 ### `personenkonto`
 

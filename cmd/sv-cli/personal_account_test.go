@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -17,6 +19,7 @@ type personalAccountStub struct {
 	accountBodies      map[string][]map[string]any
 	accountRecords     map[string][]any
 	createBodies       map[string][]map[string]any
+	updateBodies       map[string][]map[string]any
 	createResponses    map[string]map[string]any
 	bankConnections    map[string]any
 	bankConnectionHits []string
@@ -35,6 +38,7 @@ func newPersonalAccountStub(t *testing.T) *personalAccountStub {
 		accountBodies:   map[string][]map[string]any{},
 		accountRecords:  map[string][]any{},
 		createBodies:    map[string][]map[string]any{},
+		updateBodies:    map[string][]map[string]any{},
 		createResponses: map[string]map[string]any{},
 		bankConnections: map[string]any{},
 		contactByID:     map[string]map[string]any{},
@@ -49,6 +53,12 @@ func newPersonalAccountStub(t *testing.T) *personalAccountStub {
 				"access_token": "access-from-refresh",
 				"expires_in":   3600,
 			})
+		case (strings.HasPrefix(r.URL.Path, "/rest/debitoraccounts/") || strings.HasPrefix(r.URL.Path, "/rest/kreditoraccounts/")) && r.Method == http.MethodPost:
+			raw, _ := io.ReadAll(r.Body)
+			var body map[string]any
+			_ = json.Unmarshal(raw, &body)
+			stub.updateBodies[r.URL.Path] = append(stub.updateBodies[r.URL.Path], body)
+			writeJSONForCLI(w, map[string]any{"status": "ok"})
 		case (r.URL.Path == "/rest/debitoraccounts" || r.URL.Path == "/rest/kreditoraccounts") && r.Method == http.MethodPost:
 			raw, _ := io.ReadAll(r.Body)
 			var body map[string]any
@@ -612,4 +622,122 @@ func TestPersonalAccountCreateDataPreservesFullForm(t *testing.T) {
 	if term["name"] != "14 Tage" {
 		t.Fatalf("paymentTermForm = %#v", term)
 	}
+}
+
+func TestPersonalAccountUpdatePostsFileAndReadsBackUpdatedAccount(t *testing.T) {
+	cases := []struct {
+		command string
+		number  string
+		path    string
+		changes map[string]any
+	}{
+		{
+			command: "debitor",
+			number:  "10000",
+			path:    "/rest/debitoraccounts/10000",
+			changes: map[string]any{"vatCode": "EUmID", "sumAccountNumber": "1400"},
+		},
+		{
+			command: "kreditor",
+			number:  "70000",
+			path:    "/rest/kreditoraccounts/70000",
+			changes: map[string]any{"paymentTermId": 42.0},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.command, func(t *testing.T) {
+			stub := newPersonalAccountStub(t)
+			accountPath := "/rest/" + tc.command + "accounts"
+			account := map[string]any{"number": tc.number, "name": "Updated"}
+			for key, value := range tc.changes {
+				account[key] = value
+			}
+			stub.accountRecords[accountPath] = []any{account}
+			configPath := sachkontoConfigPath(t, stub.server.URL)
+			raw, err := json.Marshal(tc.changes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			filePath := filepath.Join(t.TempDir(), "changes.json")
+			if err := os.WriteFile(filePath, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			output, _ := withCLI(t, "", false)
+
+			if err := run([]string{"--config", configPath, tc.command, "update", tc.number, "--file=" + filePath, "--yes"}); err != nil {
+				t.Fatal(err)
+			}
+
+			bodies := stub.updateBodies[tc.path]
+			if len(bodies) != 1 {
+				t.Fatalf("update requests = %d", len(bodies))
+			}
+			if !reflect.DeepEqual(bodies[0], tc.changes) {
+				t.Fatalf("update body = %#v, want %#v", bodies[0], tc.changes)
+			}
+			readbacks := stub.accountBodies[accountPath]
+			if len(readbacks) != 1 {
+				t.Fatalf("readback requests = %d", len(readbacks))
+			}
+			fields, ok := readbacks[0]["fields"].([]any)
+			if !ok {
+				t.Fatalf("readback fields = %#v", readbacks[0]["fields"])
+			}
+			for _, want := range append([]string{"number"}, mapKeys(tc.changes)...) {
+				found := false
+				for _, field := range fields {
+					if field == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("readback fields %v missing %q", fields, want)
+				}
+			}
+			var got map[string]any
+			if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+				t.Fatalf("stdout JSON: %v: %s", err, output.String())
+			}
+			if got["status"] != "updated" || got["number"] != tc.number {
+				t.Fatalf("stdout = %s", output.String())
+			}
+			if !reflect.DeepEqual(got[tc.command], account) {
+				t.Fatalf("%s = %#v, want %#v", tc.command, got[tc.command], account)
+			}
+		})
+	}
+}
+
+func TestPersonalAccountUpdateDryRunDoesNotWrite(t *testing.T) {
+	stub := newPersonalAccountStub(t)
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	filePath := filepath.Join(t.TempDir(), "changes.json")
+	if err := os.WriteFile(filePath, []byte(`{"vatCode":"INL"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "debitor", "update", "10000", "--file=" + filePath, "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(stub.updateBodies) != 0 {
+		t.Fatalf("dry-run wrote %#v", stub.updateBodies)
+	}
+	got := stdoutStatus(t, output.String())
+	if got["status"] != "dry_run" || got["endpoint"] != "POST /debitoraccounts/10000" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if !reflect.DeepEqual(got["request"], map[string]any{"vatCode": "INL"}) {
+		t.Fatalf("request = %#v", got["request"])
+	}
+}
+
+func mapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	return keys
 }

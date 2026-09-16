@@ -67,6 +67,24 @@ checks master data and returns a zeroed Saldo for an existing account; a
 missing account returns `<type> <number> not found`. `show` keeps inactive
 Saldo fields as `null` so callers can distinguish no activity from net zero.
 
+### `datev`
+
+Transfer DATEV EXTF bytes without parsing or validating the file contents.
+
+- `sv-cli datev export --from=YYYY-MM-DD --to=YYYY-MM-DD --out=export.csv [--fiscal-year=N]`
+  Send the inclusive posting-date range to `POST /datevexport` and write the
+  response bytes unchanged to `--out`.
+- `sv-cli datev import --file=datev.csv [--dry-run] [--yes]`
+  Read the local file unchanged, base64-encode it in the `DatevPostings` JSON
+  envelope required by `POST /datevpostings/new`, and write the raw API response
+  to stdout. The command requires `--yes` or the phrase
+  `import datev <filename>`. `--dry-run` reads the file and prints metadata but
+  sends no API request.
+
+The helper does not inspect charset, columns, headers, or other DATEV EXTF
+details. Scopevisio validation errors, including the unmodified response body,
+are returned directly to the caller.
+
 ### `sachkonto`
 
 Search and inspect impersonal G/L accounts.

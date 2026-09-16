@@ -148,13 +148,20 @@ Search and inspect vendor-side Belege with stitched Kontakt data.
 
 ### `offene-posten`
 
-List and inspect unsettled invoices/vouchers (Offene Posten).
+List, inspect, and clear unsettled Belege (Offene Posten).
 
 - `sv-cli offene-posten list --seite=debitor|kreditor [filters] [--all]`
   List open items. You must specify the side (`--seite=debitor` or `--seite=kreditor`).
   Filters: `--overdue`, `--due-before=YYYY-MM-DD`, `--kontakt-id`, `--konto`.
 - `sv-cli offene-posten show <id>`
   Show a single open item by ID.
+- `sv-cli offene-posten ausgleichen --seite=debitor|kreditor --data @clearing.json [--dry-run] [--yes]`
+  Clear reviewed Offene Posten through the side-specific Scopevisio endpoint.
+  The JSON body has the provider shape
+  `{"clearings":[{"documentNumber":"PAY-1","documents":[{"documentNumber":"INV-1","clearingAmount":119.00}]}]}`.
+  The command validates and previews the payload before writing. Use `--dry-run`
+  for preview only; use `--yes` only after approval. A write is attempted once
+  and is never retried.
 
 ### `journal` / `buchung`
 

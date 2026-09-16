@@ -327,6 +327,41 @@ func TestKreditorShowReturnsNullKontaktWhenUnlinked(t *testing.T) {
 	}
 }
 
+func TestPersonalAccountShowKeepsNullSaldoForInactiveAccount(t *testing.T) {
+	cases := []struct {
+		command     string
+		number      string
+		accountPath string
+	}{
+		{"debitor", "10000", "/rest/debitoraccounts"},
+		{"kreditor", "70000", "/rest/kreditoraccounts"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.command, func(t *testing.T) {
+			stub := newPersonalAccountStub(t)
+			stub.accountRecords[tc.accountPath] = []any{
+				map[string]any{"number": tc.number, "name": "Inactive", "contactId": nil},
+			}
+			configPath := sachkontoConfigPath(t, stub.server.URL)
+			fixedNow(t, time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC))
+			output, _ := withCLI(t, "", false)
+
+			if err := run([]string{"--config", configPath, tc.command, "show", tc.number}); err != nil {
+				t.Fatal(err)
+			}
+
+			var got map[string]any
+			if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+				t.Fatalf("stdout JSON: %v: %s", err, output.String())
+			}
+			saldo := got["saldo"].(map[string]any)
+			if saldo["current"] != nil || saldo["fiscalYearToDate"] != nil {
+				t.Fatalf("saldo = %#v", saldo)
+			}
+		})
+	}
+}
+
 func TestKreditorBalanceWithExplicitDatesUsesCreditorSusa(t *testing.T) {
 	stub := newPersonalAccountStub(t)
 	stub.susaRecords["/rest/datasource/susa/creditors"] = []any{
@@ -347,12 +382,99 @@ func TestKreditorBalanceWithExplicitDatesUsesCreditorSusa(t *testing.T) {
 	if queries[0].Get("startDate") != "01.01.2026" || queries[0].Get("endDate") != "07.05.2026" {
 		t.Fatalf("query = %v", queries[0])
 	}
+	if len(stub.accountBodies["/rest/kreditoraccounts"]) != 0 {
+		t.Fatalf("active Saldo should not query master data: %#v", stub.accountBodies)
+	}
 	var got map[string]any
 	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
 		t.Fatalf("stdout JSON: %v: %s", err, output.String())
 	}
 	if got["Kontonummer"] != "70000" {
 		t.Fatalf("got = %#v", got)
+	}
+}
+
+func TestPersonalAccountBalanceSynthesizesZeroSaldoForInactiveAccount(t *testing.T) {
+	cases := []struct {
+		command     string
+		number      string
+		name        string
+		accountPath string
+		susaPath    string
+	}{
+		{"debitor", "10000", "Kunden A-Z", "/rest/debitoraccounts", "/rest/datasource/susa/debtors"},
+		{"kreditor", "70000", "Lieferanten A-Z", "/rest/kreditoraccounts", "/rest/datasource/susa/creditors"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.command, func(t *testing.T) {
+			stub := newPersonalAccountStub(t)
+			stub.accountRecords[tc.accountPath] = []any{
+				map[string]any{"number": tc.number, "name": tc.name},
+			}
+			configPath := sachkontoConfigPath(t, stub.server.URL)
+			output, _ := withCLI(t, "", false)
+
+			if err := run([]string{"--config", configPath, tc.command, "balance", tc.number, "--from=2025-01-01", "--to=2025-12-31"}); err != nil {
+				t.Fatal(err)
+			}
+
+			var got map[string]any
+			if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+				t.Fatalf("stdout JSON: %v: %s", err, output.String())
+			}
+			want := map[string]any{
+				"Kontonummer":     tc.number,
+				"Kontoname":       tc.name,
+				"Haben":           "0,00",
+				"Haben-Kumuliert": "0,00",
+				"Saldenvortrag":   "0,00",
+				"Saldo":           "0,00",
+				"Saldo-Kumuliert": "0,00",
+				"Soll":            "0,00",
+				"Soll-Kumuliert":  "0,00",
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("saldo = %#v, want %#v", got, want)
+			}
+			if len(stub.accountBodies[tc.accountPath]) != 1 {
+				t.Fatalf("master-data lookups = %d, want 1", len(stub.accountBodies[tc.accountPath]))
+			}
+			if len(stub.susaQueries[tc.susaPath]) != 1 {
+				t.Fatalf("SuSa lookups = %d, want 1", len(stub.susaQueries[tc.susaPath]))
+			}
+		})
+	}
+}
+
+func TestPersonalAccountBalanceReturnsTypedNotFoundError(t *testing.T) {
+	for _, command := range []string{"debitor", "kreditor"} {
+		t.Run(command, func(t *testing.T) {
+			stub := newPersonalAccountStub(t)
+			configPath := sachkontoConfigPath(t, stub.server.URL)
+			withCLI(t, "", false)
+
+			err := run([]string{"--config", configPath, command, "balance", "9999", "--from=2025-01-01", "--to=2025-12-31"})
+			want := command + " 9999 not found"
+			if err == nil || err.Error() != want {
+				t.Fatalf("err = %v, want %q", err, want)
+			}
+		})
+	}
+}
+
+func TestPersonalAccountShowReturnsTypedNotFoundError(t *testing.T) {
+	for _, command := range []string{"debitor", "kreditor"} {
+		t.Run(command, func(t *testing.T) {
+			stub := newPersonalAccountStub(t)
+			configPath := sachkontoConfigPath(t, stub.server.URL)
+			withCLI(t, "", false)
+
+			err := run([]string{"--config", configPath, command, "show", "9999"})
+			want := command + " 9999 not found"
+			if err == nil || err.Error() != want {
+				t.Fatalf("err = %v, want %q", err, want)
+			}
+		})
 	}
 }
 

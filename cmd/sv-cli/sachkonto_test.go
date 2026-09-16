@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -376,7 +377,7 @@ func TestSachkontoShowReturnsStitchedKontoAndSaldo(t *testing.T) {
 	}
 }
 
-func TestSachkontoShowReturnsNotFoundForUnknownNumber(t *testing.T) {
+func TestSachkontoShowReturnsTypedNotFoundError(t *testing.T) {
 	stub := newShowStub(t)
 	stub.kontoRecords = []any{}
 	configPath := sachkontoConfigPath(t, stub.server.URL)
@@ -384,8 +385,31 @@ func TestSachkontoShowReturnsNotFoundForUnknownNumber(t *testing.T) {
 	withCLI(t, "", false)
 
 	err := run([]string{"--config", configPath, "sachkonto", "show", "9999"})
-	if err == nil || !strings.Contains(err.Error(), "not found or authorization missing") {
+	if err == nil || err.Error() != "sachkonto 9999 not found" {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSachkontoShowKeepsNullSaldoForInactiveAccount(t *testing.T) {
+	stub := newShowStub(t)
+	stub.susaResponse = func(_ url.Values) any {
+		return map[string]any{"records": []any{}}
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	fixedNow(t, time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC))
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "sachkonto", "show", "4400"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	saldo := got["saldo"].(map[string]any)
+	if saldo["current"] != nil || saldo["fiscalYearToDate"] != nil {
+		t.Fatalf("saldo = %#v", saldo)
 	}
 }
 
@@ -407,6 +431,9 @@ func TestSachkontoBalanceWithExplicitDates(t *testing.T) {
 	}
 	if stub.susaQueries[0].Get("startDate") != "01.01.2025" || stub.susaQueries[0].Get("endDate") != "31.12.2025" {
 		t.Fatalf("susa query = %v", stub.susaQueries[0])
+	}
+	if len(stub.searchBodies) != 0 {
+		t.Fatalf("active Saldo should not query master data: %#v", stub.searchBodies)
 	}
 
 	var got map[string]any
@@ -439,17 +466,52 @@ func TestSachkontoBalanceDefaultsToCurrentFiscalYear(t *testing.T) {
 	}
 }
 
-func TestSachkontoBalanceReturnsNotFoundWhenAccountAbsent(t *testing.T) {
+func TestSachkontoBalanceSynthesizesZeroSaldoForInactiveAccount(t *testing.T) {
 	stub := newShowStub(t)
 	stub.susaResponse = func(_ url.Values) any {
 		return map[string]any{"records": []any{}}
 	}
 	configPath := sachkontoConfigPath(t, stub.server.URL)
-	fixedNow(t, time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC))
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "sachkonto", "balance", "4400", "--from=2025-01-01", "--to=2025-12-31"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	want := map[string]any{
+		"Kontonummer":     "4400",
+		"Kontoname":       "Erlöse 19% / 16% USt",
+		"Haben":           "0,00",
+		"Haben-Kumuliert": "0,00",
+		"Saldenvortrag":   "0,00",
+		"Saldo":           "0,00",
+		"Saldo-Kumuliert": "0,00",
+		"Soll":            "0,00",
+		"Soll-Kumuliert":  "0,00",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("saldo = %#v, want %#v", got, want)
+	}
+	if len(stub.searchBodies) != 1 {
+		t.Fatalf("master-data lookups = %d, want 1", len(stub.searchBodies))
+	}
+}
+
+func TestSachkontoBalanceReturnsTypedNotFoundError(t *testing.T) {
+	stub := newShowStub(t)
+	stub.kontoRecords = []any{}
+	stub.susaResponse = func(_ url.Values) any {
+		return map[string]any{"records": []any{}}
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
 	withCLI(t, "", false)
 
-	err := run([]string{"--config", configPath, "sachkonto", "balance", "4400"})
-	if err == nil || !strings.Contains(err.Error(), "not found or authorization missing") {
+	err := run([]string{"--config", configPath, "sachkonto", "balance", "9999", "--from=2025-01-01", "--to=2025-12-31"})
+	if err == nil || err.Error() != "sachkonto 9999 not found" {
 		t.Fatalf("err = %v", err)
 	}
 }

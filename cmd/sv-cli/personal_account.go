@@ -459,7 +459,7 @@ func personalAccountShow(client *scopeskill.Client, kind personalAccountKind, ar
 		return err
 	}
 	if account == nil {
-		return errors.New(notFoundOrUnauthorisedMessage)
+		return fmt.Errorf("%s %s not found", kind.command, number)
 	}
 
 	var kontakt any
@@ -523,12 +523,19 @@ func personalAccountBalance(client *scopeskill.Client, kind personalAccountKind,
 	if err != nil {
 		return err
 	}
-	rec, err := scopeskill.FetchSaldo(client, kind.saldoEndpoint, number, fromDate, toDate)
+	rec, err := fetchSaldoForBalance(
+		client,
+		kind.saldoEndpoint,
+		kind.command,
+		number,
+		fromDate,
+		toDate,
+		func(client *scopeskill.Client, number string) (map[string]any, error) {
+			return fetchPersonalAccountByNumber(client, kind, number)
+		},
+	)
 	if err != nil {
 		return err
-	}
-	if rec == nil {
-		return errors.New(notFoundOrUnauthorisedMessage)
 	}
 	return printJSON(rec)
 }

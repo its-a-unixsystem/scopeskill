@@ -85,7 +85,7 @@ func sachkontoShow(client *scopeskill.Client, args []string) error {
 		return err
 	}
 	if konto == nil {
-		return errors.New(notFoundOrUnauthorisedMessage)
+		return fmt.Errorf("sachkonto %s not found", number)
 	}
 
 	years, err := scopeskill.FetchFiscalYears(client)
@@ -140,14 +140,60 @@ func sachkontoBalance(client *scopeskill.Client, args []string) error {
 		return err
 	}
 
-	rec, err := scopeskill.FetchSaldo(client, scopeskill.SaldoEndpointSachkonto, number, fromDate, toDate)
+	rec, err := fetchSaldoForBalance(
+		client,
+		scopeskill.SaldoEndpointSachkonto,
+		"sachkonto",
+		number,
+		fromDate,
+		toDate,
+		fetchSachkontoByNumber,
+	)
 	if err != nil {
 		return err
 	}
-	if rec == nil {
-		return errors.New(notFoundOrUnauthorisedMessage)
-	}
 	return printJSON(rec)
+}
+
+func fetchSaldoForBalance(
+	client *scopeskill.Client,
+	endpoint string,
+	accountType string,
+	number string,
+	from time.Time,
+	to time.Time,
+	fetchAccount func(*scopeskill.Client, string) (map[string]any, error),
+) (map[string]any, error) {
+	rec, err := scopeskill.FetchSaldo(client, endpoint, number, from, to)
+	if err != nil {
+		return nil, err
+	}
+	if rec != nil {
+		return rec, nil
+	}
+
+	account, err := fetchAccount(client, number)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, fmt.Errorf("%s %s not found", accountType, number)
+	}
+	return zeroSaldo(number, nonEmptyString(account["name"])), nil
+}
+
+func zeroSaldo(number, name string) map[string]any {
+	return map[string]any{
+		"Kontonummer":     number,
+		"Kontoname":       name,
+		"Haben":           "0,00",
+		"Haben-Kumuliert": "0,00",
+		"Saldenvortrag":   "0,00",
+		"Saldo":           "0,00",
+		"Saldo-Kumuliert": "0,00",
+		"Soll":            "0,00",
+		"Soll-Kumuliert":  "0,00",
+	}
 }
 
 func resolveSaldoRange(client *scopeskill.Client, from, to string, now time.Time) (time.Time, time.Time, error) {

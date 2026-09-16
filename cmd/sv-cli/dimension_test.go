@@ -88,22 +88,23 @@ func TestDimensionAndTextbausteinCommandsFetchExpectedEndpoints(t *testing.T) {
 
 func TestDimensionEntryCommandsPostExpectedEndpoints(t *testing.T) {
 	for _, tc := range []struct {
-		name, operation, endpoint string
+		name, operation, number, endpoint string
+		wantNumber                        float64
 	}{
-		{"create", "create", "/rest/dimensions/Kostenstellen/dimensionentry/new"},
-		{"update", "update", "/rest/dimensions/Kostenstellen/dimensionentry"},
+		{"create", "create", "0", "/rest/dimensions/Kostenstellen/dimensionentry/new", 0},
+		{"update", "update", "100", "/rest/dimensions/Kostenstellen/dimensionentry", 100},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stub := newDimensionStub(t)
 			configPath := sachkontoConfigPath(t, stub.server.URL)
 			output, _ := withCLI(t, "", false)
-			if err := run([]string{"--config", configPath, "dimension", "entry", tc.operation, "Kostenstellen", "--number=100", "--name=IT", "--yes"}); err != nil {
+			if err := run([]string{"--config", configPath, "dimension", "entry", tc.operation, "Kostenstellen", "--number=" + tc.number, "--name=IT", "--yes"}); err != nil {
 				t.Fatal(err)
 			}
 			if len(stub.hits) != 1 || stub.hits[0] != "POST "+tc.endpoint {
 				t.Fatalf("hits = %#v, want POST %s", stub.hits, tc.endpoint)
 			}
-			if len(stub.bodies) != 1 || stub.bodies[0]["number"] != float64(100) || stub.bodies[0]["name"] != "IT" || stub.bodies[0]["locked"] != false {
+			if len(stub.bodies) != 1 || stub.bodies[0]["number"] != tc.wantNumber || stub.bodies[0]["name"] != "IT" || stub.bodies[0]["locked"] != false {
 				t.Fatalf("bodies = %#v", stub.bodies)
 			}
 			if output.Len() == 0 {

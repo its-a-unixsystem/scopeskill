@@ -48,6 +48,15 @@ Search and inspect the master directory.
   Filters: `--name`, `--ust-id`, `--email`.
 - `sv-cli kontakt show <id>`
   Show a single Kontakt by ID.
+- `sv-cli kontakt create --name=STRING [flags] [--dry-run] [--yes]`
+  Create a Kontakt via `POST /contact/new`. `--type=company|person` defaults to
+  `company`. Optional fields are `--firstname`, `--salutation`, `--vat-id`,
+  `--email`, `--street`, `--city`, `--postcode`, `--country`, and
+  `--customer-number`. `--data=@file.json|JSON` supplies the complete
+  `KontaktForm` and cannot be combined with individual field flags. The command
+  previews the request, requires `--yes` or the phrase `create kontakt <name>`,
+  and returns the new `contactId` with the created Kontakt. `--dry-run` does
+  not write.
 
 ## Accounting Commands
 
@@ -80,6 +89,20 @@ Search and inspect personal accounts linked to a Kontakt.
   Search personal Journal entries for the account side.
 - `sv-cli debitor bank-connections <Kontonummer>` / `sv-cli kreditor bank-connections <Kontonummer>`
   Show the bank connections for the personal account.
+- `sv-cli debitor create --contact-id=N [flags] [--dry-run] [--yes]` /
+  `sv-cli kreditor create --contact-id=N [flags] [--dry-run] [--yes]`
+  Create a personal account for an existing Kontakt via `POST /createdebitor`
+  or `POST /createkreditor`. Optional flags are `--number` for
+  `personalAccountNumber`, `--number-range` for `numberRangeNumber`, and
+  `--sum-account` for `sumAccountNumber`. If `--number` is omitted, Scopevisio
+  assigns the first available number from `--number-range`, or from the first
+  configured Nummernkreis when no range is given. `--data=@file.json|JSON`
+  supplies the complete `PersonalAccountForm` and cannot be combined with the
+  individual field flags; it must include `contactId` for the preflight check.
+  The command first validates the Kontakt and returns `already_exists` without
+  writing when the account is already linked. Otherwise it previews the
+  request and requires `--yes` or `create <kind> <contact-id>`. Created and
+  existing results stitch the personal account and Kontakt into stdout.
 
 ### `personenkonto`
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/its-a-unixsystem/scopeskill/internal/scopeskill"
@@ -14,6 +15,7 @@ import (
 type personalAccountKind struct {
 	command            string
 	outputKey          string
+	createEndpoint     string
 	searchEndpoint     string
 	saldoEndpoint      string
 	journalEndpoint    string
@@ -24,6 +26,7 @@ var (
 	debitorAccountKind = personalAccountKind{
 		command:            "debitor",
 		outputKey:          "debitor",
+		createEndpoint:     "/createdebitor",
 		searchEndpoint:     "/debitoraccounts",
 		saldoEndpoint:      scopeskill.SaldoEndpointDebitor,
 		journalEndpoint:    "/openitems/debitor/list",
@@ -32,6 +35,7 @@ var (
 	kreditorAccountKind = personalAccountKind{
 		command:            "kreditor",
 		outputKey:          "kreditor",
+		createEndpoint:     "/createkreditor",
 		searchEndpoint:     "/kreditoraccounts",
 		saldoEndpoint:      scopeskill.SaldoEndpointKreditor,
 		journalEndpoint:    "/openitems/creditor/list",
@@ -55,7 +59,7 @@ func kreditor(client *scopeskill.Client, args []string) error {
 
 func personalAccount(client *scopeskill.Client, kind personalAccountKind, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintf(cliOutput, "%s subcommands: search show balance journal bank-connections\n", kind.command)
+		fmt.Fprintf(cliOutput, "%s subcommands: search show balance journal bank-connections create\n", kind.command)
 		return fmt.Errorf("missing %s subcommand", kind.command)
 	}
 	switch args[0] {
@@ -69,9 +73,180 @@ func personalAccount(client *scopeskill.Client, kind personalAccountKind, args [
 		return personalAccountJournal(client, kind, args[1:])
 	case "bank-connections":
 		return personalAccountBankConnections(client, kind, args[1:])
+	case "create":
+		return personalAccountCreate(client, kind, args[1:])
 	default:
 		return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
 	}
+}
+
+func personalAccountCreateUsage(kind personalAccountKind) string {
+	return fmt.Sprintf(`usage: sv-cli %s create --contact-id=N [flags] [--dry-run] [--yes]
+
+Creates a %s for an existing Kontakt via POST %s.
+
+Flags:
+  --contact-id=N       required Kontakt Master-ID
+  --number=NNNNN       optional personalAccountNumber; omit for automatic assignment
+  --number-range=N     optional Nummernkreis number
+  --sum-account=NNNN   optional Sammelkonto number
+  --data=JSON|@file    full PersonalAccountForm override; mutually exclusive with field flags
+
+Safety:
+  --dry-run   validate the Kontakt and preview only; no write
+  --yes       bypass the interactive "create %s <contact-id>" confirmation`, kind.command, kind.command, kind.createEndpoint, kind.command)
+}
+
+func personalAccountCreate(client *scopeskill.Client, kind personalAccountKind, args []string) error {
+	flags := flag.NewFlagSet(kind.command+" create", flag.ContinueOnError)
+	flags.SetOutput(cliError)
+	contactIDValue := flags.String("contact-id", "", "Kontakt Master-ID")
+	number := flags.String("number", "", "personal account number")
+	numberRangeValue := flags.String("number-range", "", "Nummernkreis number")
+	sumAccount := flags.String("sum-account", "", "Sammelkonto number")
+	data := flags.String("data", "", "PersonalAccountForm JSON, or @path/to/file.json")
+	dryRun := flags.Bool("dry-run", false, "validate and preview only; no write")
+	yes := flags.Bool("yes", false, "skip the interactive confirmation")
+	flags.Usage = func() { fmt.Fprintln(cliError, personalAccountCreateUsage(kind)) }
+	if err := flags.Parse(normalizeFlagArgs(args)); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		flags.Usage()
+		return fmt.Errorf("%s create takes no positional arguments", kind.command)
+	}
+
+	fieldFlagSet := false
+	flags.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "contact-id", "number", "number-range", "sum-account":
+			fieldFlagSet = true
+		}
+	})
+	if *data != "" && fieldFlagSet {
+		return errors.New("--data cannot be combined with individual personal-account field flags")
+	}
+
+	var body map[string]any
+	if *data != "" {
+		var err error
+		body, err = loadJSONObject(*data)
+		if err != nil {
+			return err
+		}
+	} else {
+		if *contactIDValue == "" {
+			flags.Usage()
+			return fmt.Errorf("%s create requires --contact-id unless --data is used", kind.command)
+		}
+		body = map[string]any{"contactId": *contactIDValue}
+		if *number != "" {
+			body["personalAccountNumber"] = *number
+		}
+		if *numberRangeValue != "" {
+			body["numberRangeNumber"] = *numberRangeValue
+		}
+		if *sumAccount != "" {
+			body["sumAccountNumber"] = *sumAccount
+		}
+	}
+
+	contactID, err := positiveIntegerField(body["contactId"], "contactId")
+	if err != nil {
+		return err
+	}
+	body["contactId"] = contactID
+	if value, ok := body["numberRangeNumber"]; ok {
+		numberRange, err := positiveIntegerField(value, "numberRangeNumber")
+		if err != nil {
+			return err
+		}
+		body["numberRangeNumber"] = numberRange
+	}
+
+	kontakt, err := scopeskill.FetchKontaktByID(client, contactID)
+	if err != nil {
+		return err
+	}
+	if kontakt == nil {
+		return errors.New(notFoundOrUnauthorisedMessage)
+	}
+	if existingNumber := nonEmptyString(kontakt[kind.contactNumberField]); existingNumber != "" {
+		account, err := fetchPersonalAccountByNumber(client, kind, existingNumber)
+		if err != nil {
+			return err
+		}
+		return printJSON(map[string]any{
+			"status":       "already_exists",
+			"number":       existingNumber,
+			"contactId":    contactID,
+			kind.outputKey: account,
+			"kontakt":      kontakt,
+		})
+	}
+
+	req := writeRequest{
+		Command:       kind.command + " create",
+		Method:        http.MethodPost,
+		Path:          kind.createEndpoint,
+		Payload:       body,
+		ConfirmPhrase: fmt.Sprintf("create %s %d", kind.command, contactID),
+	}
+	writePreview(client, req)
+	if *dryRun {
+		return printJSON(map[string]any{
+			"status":   "dry_run",
+			"endpoint": "POST " + kind.createEndpoint,
+			"request":  body,
+			"kontakt":  kontakt,
+		})
+	}
+	if err := confirmWrite(req, writeOptions{Yes: *yes}); err != nil {
+		return err
+	}
+	result, outcome, writeErr := executeWriteOnce(client, req, func(any) bool { return true })
+	if outcome == writeRejected {
+		return writeErr
+	}
+	if outcome == writeAmbiguous {
+		_ = printJSON(map[string]any{"status": "verification_required", "response": result})
+		if writeErr != nil {
+			return fmt.Errorf("%s creation could not be verified: %w", kind.command, writeErr)
+		}
+		return fmt.Errorf("%s creation could not be verified", kind.command)
+	}
+
+	createdKontakt, err := scopeskill.FetchKontaktByID(client, contactID)
+	if err != nil {
+		return err
+	}
+	createdNumber := nonEmptyString(createdKontakt[kind.contactNumberField])
+	if createdKontakt == nil || createdNumber == "" {
+		return fmt.Errorf("created %s could not be read back from Kontakt %d", kind.command, contactID)
+	}
+	account, err := fetchPersonalAccountByNumber(client, kind, createdNumber)
+	if err != nil {
+		return err
+	}
+	if account == nil {
+		return fmt.Errorf("created %s %s could not be read back", kind.command, createdNumber)
+	}
+	return printJSON(map[string]any{
+		"status":       "created",
+		"number":       createdNumber,
+		"contactId":    contactID,
+		kind.outputKey: account,
+		"kontakt":      createdKontakt,
+	})
+}
+
+func positiveIntegerField(value any, field string) (int64, error) {
+	text := nonEmptyString(value)
+	number, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || number <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", field)
+	}
+	return number, nil
 }
 
 func personalAccountSearchUsage(kind personalAccountKind) string {

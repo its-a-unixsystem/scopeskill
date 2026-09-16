@@ -207,25 +207,30 @@ func (c *Client) JSON(method string, path string, body any, query map[string]str
 }
 
 func (c *Client) Bytes(method string, path string, body io.Reader, headers map[string]string, query map[string]string) ([]byte, error) {
+	raw, _, err := c.BytesWithHeaders(method, path, body, headers, query)
+	return raw, err
+}
+
+func (c *Client) BytesWithHeaders(method string, path string, body io.Reader, headers map[string]string, query map[string]string) ([]byte, http.Header, error) {
 	req, err := http.NewRequest(method, c.url(path, query), body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
 	freshToken, err := c.authorize(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	raw, err := c.do(req)
+	raw, responseHeaders, err := c.doWithHeaders(req)
 	if err != nil {
 		if err := c.handleFreshTokenAPIError(err, freshToken); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return nil, err
+		return nil, nil, err
 	}
-	return raw, nil
+	return raw, responseHeaders, nil
 }
 
 func (c *Client) Download(path string, out string, query map[string]string) error {
@@ -233,6 +238,39 @@ func (c *Client) Download(path string, out string, query map[string]string) erro
 	if err != nil {
 		return err
 	}
+	return writeDownload(out, raw)
+}
+
+func (c *Client) DownloadNamed(path string, out string, query map[string]string) (string, error) {
+	raw, headers, err := c.BytesWithHeaders(http.MethodGet, path, nil, map[string]string{"Accept": "*/*"}, query)
+	if err != nil {
+		return "", err
+	}
+	if out == "" {
+		out = responseFilename(headers.Get("Content-Disposition"))
+		if out == "" {
+			return "", errors.New("download response has no filename; pass --out")
+		}
+	}
+	if err := writeDownload(out, raw); err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+func responseFilename(contentDisposition string) string {
+	_, params, err := mime.ParseMediaType(contentDisposition)
+	if err != nil {
+		return ""
+	}
+	filename := filepath.Base(strings.ReplaceAll(params["filename"], `\`, "/"))
+	if filename == "." || filename == string(filepath.Separator) {
+		return ""
+	}
+	return filename
+}
+
+func writeDownload(out string, raw []byte) error {
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return err
 	}
@@ -362,20 +400,25 @@ func (c *Client) authorize(req *http.Request) (bool, error) {
 }
 
 func (c *Client) do(req *http.Request) ([]byte, error) {
+	raw, _, err := c.doWithHeaders(req)
+	return raw, err
+}
+
+func (c *Client) doWithHeaders(req *http.Request) ([]byte, http.Header, error) {
 	response, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer response.Body.Close()
 
 	raw, err := io.ReadAll(response.Body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, APIError{StatusCode: response.StatusCode, Body: string(raw)}
+		return nil, nil, APIError{StatusCode: response.StatusCode, Body: string(raw)}
 	}
-	return raw, nil
+	return raw, response.Header.Clone(), nil
 }
 
 func (c *Client) url(path string, query map[string]string) string {

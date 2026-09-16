@@ -229,6 +229,16 @@ Search chronological postings (Buchungen).
   verified. Stdout statuses: `dry_run`, `cancelled`, `already_cancelled`,
   `conflict`, `verification_required`; everything except `cancelled`/
   `already_cancelled` exits non-zero.
+- `sv-cli buchung file add <documentNumber> <file> [--dry-run] [--yes]`
+  Attach a local Beleg file via `POST
+  /journal/<documentNumber>/file/new`. The command reads the file, sends its
+  basename and base64-encoded bytes as `FileForm`, previews the exact payload,
+  and requires `--yes` or the interactive phrase `attach <documentNumber>`.
+  `--dry-run` performs no request. A real run sends the write exactly once.
+- `sv-cli buchung file get <documentNumber> [--out <file>] [--with-stamp]`
+  Download the attached Beleg via `GET /journal/<documentNumber>/file`.
+  Without `--out`, the response filename is used. `--with-stamp` instead uses
+  `GET /journal/<documentNumber>/filewithstamp`.
 - `sv-cli buchung replace <documentNumber> --data @replacement.json [--dry-run] [--yes]`
   Intentionally unavailable: the atomic semantics of `POST
   /postings/correction` have not passed the mandatory controlled live contract

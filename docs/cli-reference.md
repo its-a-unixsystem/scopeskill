@@ -192,7 +192,8 @@ Search chronological postings (Buchungen).
 - `sv-cli buchung cancel <documentNumber> [--dry-run] [--yes]`
   Cancel one active Buchung via `POST /journal/<documentNumber>/cancel`. The
   command first reads the complete original, then searches the journal for
-  documents linked through `cancelDocument`: a linked document whose rows are
+  documents linked through `cancellationNumber` matching the original's shared
+  `pdeRowNumber`: a linked document whose rows are
   an exact sign reversal of the original counts as the Storno. If a verified
   Storno already exists the command reports `already_cancelled` and writes
   nothing, so it is safe to retry. Before writing it checks that the fiscal

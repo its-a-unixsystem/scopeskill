@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	_ "time/tzdata" // embed zoneinfo so Europe/Berlin works without system tzdata
 
 	"github.com/its-a-unixsystem/scopeskill/internal/scopeskill"
 	"golang.org/x/term"
@@ -708,8 +709,7 @@ commands:
   statistik         search and inspect Statistik accounts and postings
   zahlungsbedingung list and inspect Zahlungsbedingungen
   steuermatrix      list Steuermatrix entries
-  steuersachverhalt list Steuersachverhalte
-  eingangsrechnung  search and inspect Eingangsrechnungen
+  eingangsrechnung  search, inspect, and repair Eingangsrechnungen
   gutschrift        search and inspect Gutschriften
   offene-posten     search, inspect, and clear Offene Posten
   journal           search the Journal (chronological postings)

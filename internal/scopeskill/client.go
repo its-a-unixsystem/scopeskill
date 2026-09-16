@@ -30,6 +30,7 @@ type Config struct {
 	ConfigPath       string
 	BaseURL          string
 	Customer         string
+	SKR              string
 	RefreshToken     string
 	AccessToken      string
 	AccessTokenCache string

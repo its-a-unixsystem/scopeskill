@@ -231,7 +231,9 @@ func TestRequireSKR(t *testing.T) {
 func TestNoSKREnvOverride(t *testing.T) {
 	t.Setenv("SCOPESKILL_SKR", "skr03")
 	t.Setenv("SCOPESKILL_"+ConfigKeySKR, "skr03")
-	cf, err := ReadConfigFile(t.TempDir() + "/missing")
+	missing := t.TempDir() + "/missing"
+	t.Setenv(EnvConfig, missing)
+	cf, err := ReadConfigFile(missing)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +244,7 @@ func TestNoSKREnvOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Config has no SKR field; ensure no field reads from SCOPESKILL_SKR.
-	_ = cfg
+	if cfg.SKR != "" {
+		t.Fatalf("env override leaked: cfg.SKR = %q", cfg.SKR)
+	}
 }
-

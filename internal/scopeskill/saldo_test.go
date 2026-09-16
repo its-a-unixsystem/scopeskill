@@ -170,3 +170,96 @@ func TestFiscalYearEndFallsBackWhenNoLaterYear(t *testing.T) {
 
 // silences unused-import flag when reflect isn't otherwise used.
 var _ = reflect.DeepEqual
+
+func TestFetchFiscalYearsParsesPeriods(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{
+			"years": []any{
+				map[string]any{
+					"id": 45, "name": "2025", "open": true,
+					"beginningTs": float64(1735686000000), "endTs": float64(1767141999999),
+					"periods": []any{
+						map[string]any{"name": "Mai 2025", "open": false, "beginningTs": float64(1746045600000), "endTs": float64(1748728799999)},
+						map[string]any{"name": "Juni 2025", "open": true, "beginningTs": float64(1748728800000), "endTs": float64(1751320799999)},
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+	client := NewClient(Config{BaseURL: server.URL, AccessToken: "test"})
+
+	years, err := FetchFiscalYears(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(years) != 1 || len(years[0].Periods) != 2 {
+		t.Fatalf("years = %#v", years)
+	}
+	june := years[0].Periods[1]
+	if june.Name != "Juni 2025" || !june.Open {
+		t.Fatalf("june = %#v", june)
+	}
+	if !june.Beginning.Equal(time.UnixMilli(1748728800000)) {
+		t.Fatalf("june.Beginning = %s", june.Beginning)
+	}
+}
+
+func TestFetchFiscalYearsPrefersBeginningStringOverMillis(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{
+			"years": []any{
+				map[string]any{
+					"id": 45, "name": "2025", "open": true,
+					"beginning":   "2025-01-01T00:00:00.000Z+0100",
+					"beginningTs": float64(1735686000000),
+				},
+			},
+		})
+	}))
+	defer server.Close()
+	client := NewClient(Config{BaseURL: server.URL, AccessToken: "test"})
+
+	years, err := FetchFiscalYears(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := years[0].Beginning.Format("02.01.2006"); got != "01.01.2025" {
+		t.Fatalf("Beginning = %s", got)
+	}
+}
+
+func TestFiscalPeriodForFindsOpenPeriod(t *testing.T) {
+	years := []FiscalYear{
+		{
+			Name: "2025", Open: true,
+			Beginning: time.UnixMilli(1735686000000).UTC(),
+			End:       time.UnixMilli(1767141999999).UTC(),
+			Periods: []FiscalPeriod{
+				{Name: "Mai 2025", Open: false, Beginning: time.UnixMilli(1746045600000).UTC(), End: time.UnixMilli(1748728799999).UTC()},
+				{Name: "Juni 2025", Open: true, Beginning: time.UnixMilli(1748728800000).UTC(), End: time.UnixMilli(1751320799999).UTC()},
+			},
+		},
+	}
+	fy, period, ok := FiscalPeriodFor(years, time.Date(2025, 6, 2, 0, 0, 0, 0, time.UTC))
+	if !ok || fy.Name != "2025" || period.Name != "Juni 2025" || !period.Open {
+		t.Fatalf("fy=%#v period=%#v ok=%v", fy, period, ok)
+	}
+	_, closed, ok := FiscalPeriodFor(years, time.Date(2025, 5, 15, 0, 0, 0, 0, time.UTC))
+	if !ok || closed.Open {
+		t.Fatalf("expected found-but-closed period, got %#v ok=%v", closed, ok)
+	}
+	if _, _, ok := FiscalPeriodFor(years, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)); ok {
+		t.Fatal("expected not-found for date outside all years")
+	}
+}
+
+func TestFiscalPeriodForSynthesisesPeriodWhenYearHasNone(t *testing.T) {
+	years := []FiscalYear{
+		{Name: "2025", Open: true, Beginning: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	fy, period, ok := FiscalPeriodFor(years, time.Date(2025, 6, 2, 0, 0, 0, 0, time.UTC))
+	if !ok || period.Name != "2025" || !period.Open {
+		t.Fatalf("fy=%#v period=%#v ok=%v", fy, period, ok)
+	}
+}

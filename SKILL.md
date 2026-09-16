@@ -46,6 +46,7 @@ Follow this escalation pattern when interacting with Scopevisio:
 | Create a Debitor or Kreditor            | `debitor create` / `kreditor create --contact-id=N --dry-run`, then `--yes` | Linking a reviewed Kontakt to the required account side |
 | Update a Debitor or Kreditor            | `debitor update` / `kreditor update <nr> --file=changes.json --dry-run`, then `--yes` | Correcting reviewed Personenkonto master data |
 | Check a specific impersonal account     | `sachkonto show` / `balance`             | Investigating G/L (General Ledger) accounts                         |
+| Fetch a BWA, Bilanz, or GuV             | `bericht show` / `bericht export`         | Need the provider's structured report JSON or an unchanged CSV/PDF export |
 | Check a customer/vendor account         | `debitor show` / `kreditor show`         | Investigating personal accounts linked to a Kontakt                 |
 | Find open invoices/vouchers             | `offene-posten list --seite=...`         | Looking for unsettled items on either the debitor or kreditor side  |
 | Clear reviewed creditor open items      | `offene-posten clear --seite=kreditor --data @f --dry-run`, then `--yes` | Only from an approved payment-to-Beleg mapping |
@@ -107,6 +108,21 @@ explicit approval. Add `--allow-partial` only when the approved mapping
 intentionally leaves an item balance. The command verifies the live Kreditor,
 currency, and balances, sends at most one request, and reads every affected
 balance back.
+
+### Financial Reports
+Fetch the provider's structured BWA, Bilanz, or GuV without deriving business
+answers:
+```bash
+sv-cli bericht show --type=bwa --name="Standard" --year=2026 --month=9
+sv-cli bericht export --type=bilanz --from=01.01.2026 --to=31.12.2026 --format=pdf --out=bilanz-2026.pdf
+```
+
+`bericht show` writes the `/proreport` JSON unchanged. `--layout` selects a
+column layout and defaults to `Standard`; `--show-accounts` includes account
+rows. `bericht export`
+writes the `/reports/{type}` bytes unchanged; without `--out`, it uses the
+response filename.
+
 
 ### Ledger Postings (Journal)
 Search for specific postings by Sachkonto or amount:

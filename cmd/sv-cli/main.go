@@ -66,6 +66,12 @@ func run(args []string) error {
 			return err
 		}
 		return datev(client, commandArgs[1:])
+	case "bericht":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return bericht(client, commandArgs[1:])
 	case "teamwork":
 		client, err := newClient(configPath)
 		if err != nil {
@@ -705,6 +711,7 @@ commands:
   download          download bytes from an authenticated endpoint
   teamwork          Teamwork-specific operations
   datev             import and export DATEV EXTF files
+  bericht           retrieve and export BWA, Bilanz, and GuV reports
   sachkonto         search and inspect Sachkonten
   kontakt           search, inspect, and create Kontakte (master directory)
   debitor           search, inspect, create, and update Debitoren

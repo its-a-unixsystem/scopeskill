@@ -67,6 +67,21 @@ checks master data and returns a zeroed Saldo for an existing account; a
 missing account returns `<type> <number> not found`. `show` keeps inactive
 Saldo fields as `null` so callers can distinguish no activity from net zero.
 
+### `bericht`
+
+Retrieve BWA, Bilanz, and GuV reports without deriving or flattening their
+contents.
+
+- `sv-cli bericht show --type=bwa|bilanz|guv --name=NAME --year=YYYY --month=MM [--show-accounts] [--layout=NAME]`
+  Fetch `GET /proreport/...` and write the response JSON unchanged to stdout.
+  `--layout` selects the column layout and defaults to `Standard`;
+  `--show-accounts` includes account rows.
+- `sv-cli bericht export --type=bwa|bilanz|guv --from=DD.MM.YYYY --to=DD.MM.YYYY [--format=csv|pdf] [--out=FILE]`
+  Fetch `GET /reports/{type}` and write the response bytes unchanged. The
+  format defaults to CSV. If `--out` is omitted, the filename from the response
+  `Content-Disposition` header is used.
+
+
 ### `datev`
 
 Transfer DATEV EXTF bytes without parsing or validating the file contents.

@@ -59,15 +59,19 @@ func newClearingCommandStub(t *testing.T) *clearingCommandStub {
 		case r.URL.Path == "/rest/openitems/creditors":
 			stub.searchCount++
 			if stub.mutateOnSearch > 0 && stub.searchCount == stub.mutateOnSearch {
-				stub.openItems["INV-1"]["openAmount"] = 118.0
+				stub.openItems["INV-1"]["amount"] = -118.0
 			}
 			raw, _ := io.ReadAll(r.Body)
 			var body map[string]any
 			_ = json.Unmarshal(raw, &body)
-			documentNumber := searchConditionValue(body, "invoiceNumber")
+			// Offene Posten sind nur über das Konto durchsuchbar; die
+			// Belegnummer filtert der Aufrufer clientseitig (scopeskill #58).
+			account := searchConditionValue(body, "accountNumber")
 			records := []any{}
-			if item := stub.openItems[documentNumber]; item != nil {
-				records = append(records, item)
+			for _, item := range stub.openItems {
+				if account != "" && nonEmptyString(item["accountNumber"]) == account {
+					records = append(records, item)
+				}
 			}
 			writeJSONForCLI(w, map[string]any{"records": records})
 		case r.URL.Path == "/rest/openitems/creditor/clearing":
@@ -100,16 +104,20 @@ func newClearingCommandStub(t *testing.T) *clearingCommandStub {
 func newHappyClearingCommandStub(t *testing.T) *clearingCommandStub {
 	t.Helper()
 	stub := newClearingCommandStub(t)
-	stub.journal["PAY-1"] = creditorDocumentRows("PAY-1", "70010", 200, true, "EUR")
-	stub.journal["INV-1"] = creditorDocumentRows("INV-1", "70010", 119, false, "EUR")
-	stub.journal["INV-2"] = creditorDocumentRows("INV-2", "70010", 81, false, "EUR")
-	stub.openItems["PAY-1"] = openItem("PAY-1", "70010", 200, 200, "EUR")
-	stub.openItems["INV-1"] = openItem("INV-1", "70010", 119, 119, "EUR")
-	stub.openItems["INV-2"] = openItem("INV-2", "70010", 81, 81, "EUR")
+	stub.journal["PAY-1"] = creditorDocumentRows("PAY-1", "70010", 200, true)
+	stub.journal["INV-1"] = creditorDocumentRows("INV-1", "70010", 119, false)
+	stub.journal["INV-2"] = creditorDocumentRows("INV-2", "70010", 81, false)
+	stub.openItems["PAY-1"] = openItem("PAY-1", "70010", 200, true)
+	stub.openItems["INV-1"] = openItem("INV-1", "70010", 119, false)
+	stub.openItems["INV-2"] = openItem("INV-2", "70010", 81, false)
 	return stub
 }
 
-func creditorDocumentRows(documentNumber, account string, amount float64, payment bool, currency string) []any {
+// creditorDocumentRows spiegelt das echte Journalformat: die Sammelkontozeile
+// trägt accountNumber 3300 und den Kreditor unter personalAccountNumber, nicht
+// die Kreditornummer im accountNumber, und eine Inlandsbuchung nennt keine
+// Währung. Der Ausgleich muss den Kreditor dort erkennen (scopeskill #58).
+func creditorDocumentRows(documentNumber, account string, amount float64, payment bool) []any {
 	personalDebit, personalCredit := 0.0, amount
 	counterDebit, counterCredit := amount, 0.0
 	counterAccount := "4400"
@@ -119,18 +127,23 @@ func creditorDocumentRows(documentNumber, account string, amount float64, paymen
 		counterAccount = "1200"
 	}
 	return []any{
-		map[string]any{"documentNumber": documentNumber, "accountNumber": account, "debitAmount": personalDebit, "creditAmount": personalCredit, "foreignCurrencyCode": currency},
+		map[string]any{"documentNumber": documentNumber, "accountNumber": "3300", "personalAccountNumber": account, "debitAmount": personalDebit, "creditAmount": personalCredit},
 		map[string]any{"documentNumber": documentNumber, "accountNumber": counterAccount, "debitAmount": counterDebit, "creditAmount": counterCredit},
 	}
 }
 
-func openItem(documentNumber, account string, amount, open float64, currency string) map[string]any {
+// openItem spiegelt das echte OP-Format: die Belegnummer steht in
+// postingNumber, der offene Betrag als vorzeichenbehaftetes amount (Rechnung
+// negativ, Zahlung positiv), ohne eigenes openAmount oder currency.
+func openItem(postingNumber, account string, open float64, payment bool) map[string]any {
+	amount := -open
+	if payment {
+		amount = open
+	}
 	return map[string]any{
-		"invoiceNumber": documentNumber,
+		"postingNumber": postingNumber,
 		"accountNumber": account,
 		"amount":        amount,
-		"openAmount":    open,
-		"currency":      currency,
 	}
 }
 
@@ -166,12 +179,31 @@ func (stub *clearingCommandStub) reduceOpenAmount(documentNumber string, amount 
 	if item == nil {
 		return
 	}
-	remaining := item["openAmount"].(float64) - amount
+	current := item["amount"].(float64)
+	sign := 1.0
+	if current < 0 {
+		sign, current = -1.0, -current
+	}
+	remaining := current - amount
 	if remaining == 0 {
 		delete(stub.openItems, documentNumber)
 		return
 	}
-	item["openAmount"] = remaining
+	item["amount"] = sign * remaining
+}
+
+// openAmountOf gibt den Betrag eines offenen Postens als positiven Wert zurück
+// (0, wenn ausgeglichen und damit nicht mehr gelistet).
+func openAmountOf(stub *clearingCommandStub, postingNumber string) float64 {
+	item := stub.openItems[postingNumber]
+	if item == nil {
+		return 0
+	}
+	amount, _ := item["amount"].(float64)
+	if amount < 0 {
+		return -amount
+	}
+	return amount
 }
 
 func clearingInputFile(t *testing.T, body string) string {
@@ -255,19 +287,17 @@ func TestOffenePostenClearRejectsUnsafePreflightWithoutWrite(t *testing.T) {
 		{"missing payment", func(s *clearingCommandStub) { delete(s.journal, "PAY-1") }, "", nil, "payment document"},
 		{"closed item", func(s *clearingCommandStub) {
 			delete(s.openItems, "INV-1")
-			s.journal["INV-1"] = creditorDocumentRows("INV-1", "70010", 120, false, "EUR")
+			s.journal["INV-1"] = creditorDocumentRows("INV-1", "70010", 120, false)
 		}, "", nil, "not open"},
 		{"creditor mismatch", func(s *clearingCommandStub) {
-			s.journal["INV-1"] = creditorDocumentRows("INV-1", "70011", 119, false, "EUR")
+			s.journal["INV-1"] = creditorDocumentRows("INV-1", "70011", 119, false)
 			s.openItems["INV-1"]["accountNumber"] = "70011"
 		}, "", nil, "same Kreditor"},
 		{"currency mismatch", func(s *clearingCommandStub) {
 			s.journal["INV-1"][0].(map[string]any)["foreignCurrencyCode"] = "USD"
-			s.openItems["INV-1"]["currency"] = "USD"
 		}, "", nil, "currency"},
-		{"missing currency", func(s *clearingCommandStub) { delete(s.openItems["INV-1"], "currency") }, "", nil, "lacks currency"},
-		{"missing open amount", func(s *clearingCommandStub) { delete(s.openItems["INV-1"], "openAmount") }, "", nil, "lacks openAmount"},
-		{"payment over-allocation", func(s *clearingCommandStub) { s.openItems["PAY-1"]["openAmount"] = 100.0 }, "", nil, "payment"},
+		{"missing open amount", func(s *clearingCommandStub) { delete(s.openItems["INV-1"], "amount") }, "", nil, "lacks amount"},
+		{"payment over-allocation", func(s *clearingCommandStub) { s.openItems["PAY-1"]["amount"] = 100.0 }, "", nil, "payment"},
 		{"item over-clearing", func(s *clearingCommandStub) {}, `{"paymentDocumentNumber":"PAY-1","items":[{"documentNumber":"INV-1","clearingAmount":120.00}]}`, nil, "exceeds"},
 		{"partial without flag", func(s *clearingCommandStub) {}, `{"paymentDocumentNumber":"PAY-1","items":[{"documentNumber":"INV-1","clearingAmount":100.00}]}`, nil, "--allow-partial"},
 	}
@@ -324,7 +354,7 @@ func TestOffenePostenClearWritesOnceAndVerifiesEveryBalance(t *testing.T) {
 	if stub.writeCount != 1 || status["status"] != "cleared" {
 		t.Fatalf("write count = %d, stdout = %#v", stub.writeCount, status)
 	}
-	if stub.openItems["PAY-1"]["openAmount"] != 31.0 || stub.openItems["INV-2"]["openAmount"] != 31.0 || stub.openItems["INV-1"] != nil {
+	if openAmountOf(stub, "PAY-1") != 31.0 || openAmountOf(stub, "INV-2") != 31.0 || stub.openItems["INV-1"] != nil {
 		t.Fatalf("open items = %#v", stub.openItems)
 	}
 	items, _ := status["items"].([]any)
@@ -336,7 +366,7 @@ func TestOffenePostenClearWritesOnceAndVerifiesEveryBalance(t *testing.T) {
 func TestOffenePostenClearIdenticalRepeatMakesNoWrite(t *testing.T) {
 	stub := newHappyClearingCommandStub(t)
 	delete(stub.openItems, "INV-1")
-	stub.openItems["PAY-1"]["openAmount"] = 81.0
+	stub.openItems["PAY-1"]["amount"] = 81.0
 	status, _, err := runCreditorClear(t, stub, standardClearingInput(t), "--yes")
 	if err != nil {
 		t.Fatal(err)
@@ -348,8 +378,8 @@ func TestOffenePostenClearIdenticalRepeatMakesNoWrite(t *testing.T) {
 
 func TestOffenePostenClearUsesExplicitBeforeStateForPreviouslyAllocatedItems(t *testing.T) {
 	stub := newHappyClearingCommandStub(t)
-	stub.openItems["PAY-1"]["openAmount"] = 150.0
-	stub.openItems["INV-1"]["openAmount"] = 50.0
+	stub.openItems["PAY-1"]["amount"] = 150.0
+	stub.openItems["INV-1"]["amount"] = -50.0
 	path := clearingInputFile(t, `{"paymentDocumentNumber":"PAY-1","paymentOpenAmount":150.00,"items":[{"documentNumber":"INV-1","openAmount":50.00,"clearingAmount":50.00}]}`)
 
 	status, _, err := runCreditorClear(t, stub, path, "--yes")

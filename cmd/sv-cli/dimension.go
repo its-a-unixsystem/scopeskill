@@ -49,7 +49,11 @@ func dimensionEntryWrite(client *scopeskill.Client, args []string, operation str
 	if err := flags.Parse(normalizeFlagArgs(args)); err != nil {
 		return err
 	}
-	if flags.NArg() != 1 || *number == 0 || *entryName == "" {
+	numberSet := false
+	flags.Visit(func(current *flag.Flag) {
+		numberSet = numberSet || current.Name == "number"
+	})
+	if flags.NArg() != 1 || !numberSet || *entryName == "" {
 		return errors.New("dimension entry requires <dimension>, --number and --name")
 	}
 	suffix, status := "/dimensionentry", "updated"

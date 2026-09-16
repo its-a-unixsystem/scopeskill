@@ -121,7 +121,6 @@ type openItemsClearingDocument struct {
 type creditorClearingDocument struct {
 	DocumentNumber string
 	AccountNumber  string
-	Currency       string
 	OriginalAmount centAmount
 }
 
@@ -360,19 +359,15 @@ func fetchCreditorClearingDocuments(client *scopeskill.Client, input creditorCle
 	account := creditorAccounts[0]
 	documents := make(map[string]creditorClearingDocument, len(numbers))
 	paymentDirection := signOf(netsByDocument[numbers[0]][account])
-	currency := normalizeCurrency(currencyByDocument[numbers[0]][account])
-	if currency == "" {
-		return nil, errors.New("payment journal document lacks currency")
-	}
+	// Inlandsbuchungen führen keine Währung auf der Zeile; das ist EUR. Eine
+	// ausgewiesene Fremdwährung bleibt dagegen vom Ausgleich ausgeschlossen.
+	currency := clearingCurrency(currencyByDocument[numbers[0]][account])
 	if currency != "EUR" {
 		return nil, fmt.Errorf("payment currency %s is not supported; creditor clearing requires EUR", currency)
 	}
 	for i, number := range numbers {
 		net := netsByDocument[number][account]
-		documentCurrency := normalizeCurrency(currencyByDocument[number][account])
-		if documentCurrency == "" {
-			return nil, fmt.Errorf("journal document %s lacks currency", number)
-		}
+		documentCurrency := clearingCurrency(currencyByDocument[number][account])
 		if documentCurrency != currency {
 			return nil, fmt.Errorf("document %s currency %s does not match payment currency %s", number, documentCurrency, currency)
 		}
@@ -382,7 +377,6 @@ func fetchCreditorClearingDocuments(client *scopeskill.Client, input creditorCle
 		documents[number] = creditorClearingDocument{
 			DocumentNumber: number,
 			AccountNumber:  account,
-			Currency:       currency,
 			OriginalAmount: absCents(net),
 		}
 	}
@@ -394,7 +388,10 @@ func journalAccountNets(records []any) (map[string]centAmount, map[string]string
 	currencies := map[string]string{}
 	for _, value := range records {
 		record, _ := value.(map[string]any)
-		account := nonEmptyString(record["accountNumber"])
+		// Auf der Sammelkontozeile trägt Scopevisio das Kreditorenkonto unter
+		// personalAccountNumber, accountNumber zeigt die 3300; der Ausgleich
+		// läuft über das Personenkonto (scopeskill #58).
+		account := firstNonEmptyString(record, "personalAccountNumber", "accountNumber")
 		if account == "" {
 			continue
 		}
@@ -496,54 +493,52 @@ func readCreditorClearingSnapshot(client *scopeskill.Client, input creditorClear
 }
 
 func fetchCreditorOpenAmount(client *scopeskill.Client, document creditorClearingDocument) (centAmount, error) {
-	request := scopeskill.SearchRequest{
-		PageSize:   2,
-		Conditions: []scopeskill.SearchCondition{{Field: "invoiceNumber", Operator: scopeskill.OpEquals, Value: document.DocumentNumber}},
+	// Offene Posten lassen sich nur über das Konto suchen: postingNumber ist
+	// kein durchsuchbares Feld (die API antwortet mit HTTP 500), und die
+	// Belegnummer steht dort, nicht unter invoiceNumber. Deshalb alle offenen
+	// Posten des Kreditors holen und über die Belegnummer filtern (scopeskill
+	// #58). Ist keiner mehr offen, ist der Posten ausgeglichen.
+	base := scopeskill.SearchRequest{
+		Conditions: []scopeskill.SearchCondition{{Field: "accountNumber", Operator: scopeskill.OpEquals, Value: document.AccountNumber}},
 	}
-	body, err := request.Body()
+	records, err := paginateOpenItems(client, offenePostenKreditor.endpoint, base, true, 0, 0)
 	if err != nil {
 		return 0, err
 	}
-	raw, err := client.JSON(http.MethodPost, offenePostenKreditor.endpoint, body, nil)
-	if err != nil {
-		return 0, err
+	var match map[string]any
+	for _, value := range records {
+		record, _ := value.(map[string]any)
+		if nonEmptyString(record["postingNumber"]) != document.DocumentNumber {
+			continue
+		}
+		if match != nil {
+			return 0, fmt.Errorf("document %s matched multiple creditor open items", document.DocumentNumber)
+		}
+		match = record
 	}
-	records, err := scopeskill.RecordsFromResponse(raw)
-	if err != nil {
-		return 0, err
-	}
-	if len(records) == 0 {
+	if match == nil {
 		return 0, nil
 	}
-	if len(records) != 1 {
-		return 0, fmt.Errorf("document %s matched multiple creditor open items", document.DocumentNumber)
-	}
-	record, _ := records[0].(map[string]any)
-	if number := nonEmptyString(record["invoiceNumber"]); number != document.DocumentNumber {
-		return 0, fmt.Errorf("creditor open-item lookup returned document %q for %s", number, document.DocumentNumber)
-	}
-	if account := nonEmptyString(record["accountNumber"]); account != document.AccountNumber {
-		return 0, fmt.Errorf("document %s belongs to Kreditor %s, expected %s", document.DocumentNumber, account, document.AccountNumber)
-	}
-	currency := normalizeCurrency(firstNonEmptyString(record, "currency", "currencyCode", "foreignCurrencyCode"))
-	if currency == "" {
-		return 0, fmt.Errorf("document %s open item lacks currency", document.DocumentNumber)
-	}
-	if currency != document.Currency {
-		return 0, fmt.Errorf("document %s currency %s does not match payment currency %s", document.DocumentNumber, currency, document.Currency)
-	}
-	openValue, present := record["openAmount"]
+	// Der offene Betrag steht als vorzeichenbehaftetes amount; ein eigenes
+	// openAmount führt Scopevisio hier nicht. Ob es der Rest- oder der
+	// Ursprungsbetrag ist, ist für Teilausgleiche noch zu klären
+	// (docs/scopeskill-luecken.md).
+	amountValue, present := match["amount"]
 	if !present {
-		return 0, fmt.Errorf("document %s open item lacks openAmount", document.DocumentNumber)
+		return 0, fmt.Errorf("document %s open item lacks amount", document.DocumentNumber)
 	}
-	open, err := anyAmountCents(openValue)
+	open, err := anyAmountCents(amountValue)
 	if err != nil {
-		return 0, fmt.Errorf("document %s openAmount: %w", document.DocumentNumber, err)
+		return 0, fmt.Errorf("document %s amount: %w", document.DocumentNumber, err)
 	}
-	if open < 0 {
-		open = -open
+	return absCents(open), nil
+}
+
+func clearingCurrency(raw string) string {
+	if currency := normalizeCurrency(raw); currency != "" {
+		return currency
 	}
-	return open, nil
+	return "EUR"
 }
 
 func fetchClearingOrganisation(client *scopeskill.Client) (map[string]any, error) {

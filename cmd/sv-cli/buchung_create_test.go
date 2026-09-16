@@ -411,9 +411,11 @@ func TestBuchungCreateYesHappyPath(t *testing.T) {
 	if stub.journalGetCount() != 2 {
 		t.Fatalf("journal GETs = %d", stub.journalGetCount())
 	}
+	// Die Verifikation liest die vollständige Journalzeile ohne
+	// fields-Projektion, damit personalAccountNumber mitkommt (scopeskill #58).
 	for _, query := range stub.journalQueries {
-		if !strings.Contains(query, "debitAmount") {
-			t.Fatalf("journal GET query missing fields/debitAmount: %q", query)
+		if query != "" {
+			t.Fatalf("journal GET should fetch the full row, got query %q", query)
 		}
 	}
 	got := stdoutStatus(t, output.String())

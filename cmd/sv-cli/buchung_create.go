@@ -267,9 +267,10 @@ func preflightVatKeys(client *scopeskill.Client, in scopeskill.SinglePostingInpu
 // fetchJournalRecords returns nil (no error) when the document number does not
 // exist in the journal.
 func fetchJournalRecords(client *scopeskill.Client, documentNumber string) ([]any, error) {
-	raw, err := client.JSON(http.MethodGet, "/journal/"+url.PathEscape(documentNumber), nil, map[string]string{
-		"fields": strings.Join(journalSearchDefaultFields, ","),
-	})
+	// Ohne fields-Projektion abrufen: sie unterschlägt personalAccountNumber,
+	// das der Kreditorenausgleich zum Erkennen des Personenkontos braucht
+	// (scopeskill #58). Die vollständige Zeile ist klein genug.
+	raw, err := client.JSON(http.MethodGet, "/journal/"+url.PathEscape(documentNumber), nil, nil)
 	if err != nil {
 		var apiErr scopeskill.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {

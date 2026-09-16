@@ -113,7 +113,7 @@ A single posting in the **Journal**: at minimum a Soll/Haben pair on Konten with
 _Avoid_: Posting line, journal entry
 
 **Journal**:
-The chronological sequence of all **Buchungen** for a Fiskaljahr; queried but never mutated through the **`sv-cli`** in v1.
+The chronological sequence of all **Buchungen** for a Fiskaljahr; queried through the **`sv-cli`**; mutated only by the explicit `buchung create` write path.
 _Avoid_: Ledger
 
 **Beleg**:

@@ -165,6 +165,30 @@ Search chronological postings (Buchungen).
   Filters: `--from`, `--to`, `--konto`, `--text`, `--belegnr`, `--amount-min`, `--amount-max`, `--dim=KEY=VALUE`.
 - `sv-cli buchung show <documentNumber>`
   Show a specific booking by its documentNumber.
+- `sv-cli buchung create --data @buchung.json [--dry-run] [--yes]`
+  Create one reviewed Buchung via `POST /postings/new`. The input carries shared
+  document fields plus at least two rows:
+
+  ```json
+  {
+    "documentNumber": "P-2025-1",
+    "postingDate": "2025-06-02",
+    "rows": [
+      {"account": "4400", "amount": 119.00, "vatKey": "U19"},
+      {"account": "1200", "amount": -119.00}
+    ]
+  }
+  ```
+
+  `summaryAccount` is required on rows posting to a Personenkonto. The command
+  runs read-only preflight checks (fiscal period open, accounts exist and are
+  active, vatKey exists in the Steuermatrix, documentNumber not already booked),
+  prints the exact payload to stderr, and — unless `--yes` is given — asks a TTY
+  user to type `create <documentNumber>`. Without `--yes` and without a TTY it
+  fails before writing. The write is issued exactly once and verified against
+  the journal afterwards. Stdout statuses: `dry_run`, `created`,
+  `already_exists`, `conflict`, `verification_required`, `verification_failed`;
+  everything except `created`/`already_exists` exits non-zero.
 
 ## Common CLI Patterns
 

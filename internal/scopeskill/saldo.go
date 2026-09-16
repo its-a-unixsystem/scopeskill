@@ -72,6 +72,16 @@ type FiscalYear struct {
 	ID        int
 	Name      string
 	Beginning time.Time
+	End       time.Time
+	Open      bool
+	Periods   []FiscalPeriod
+}
+
+// FiscalPeriod is one booking period inside a FiscalYear.
+type FiscalPeriod struct {
+	Name      string
+	Beginning time.Time
+	End       time.Time
 	Open      bool
 }
 
@@ -106,6 +116,33 @@ func FetchFiscalYears(client *Client) ([]FiscalYear, error) {
 			if t, err := parseScopevisioDate(v); err == nil {
 				fy.Beginning = t
 			}
+		}
+		if v, ok := m["beginningTs"].(float64); ok && fy.Beginning.IsZero() {
+			fy.Beginning = time.UnixMilli(int64(v)).UTC()
+		}
+		if v, ok := m["endTs"].(float64); ok {
+			fy.End = time.UnixMilli(int64(v)).UTC()
+		}
+		periods, _ := m["periods"].([]any)
+		for _, item := range periods {
+			p, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			period := FiscalPeriod{}
+			if v, ok := p["name"].(string); ok {
+				period.Name = v
+			}
+			if v, ok := p["open"].(bool); ok {
+				period.Open = v
+			}
+			if v, ok := p["beginningTs"].(float64); ok {
+				period.Beginning = time.UnixMilli(int64(v)).UTC()
+			}
+			if v, ok := p["endTs"].(float64); ok {
+				period.End = time.UnixMilli(int64(v)).UTC()
+			}
+			fy.Periods = append(fy.Periods, period)
 		}
 		out = append(out, fy)
 	}
@@ -143,6 +180,33 @@ func EarliestFiscalYear(years []FiscalYear) (FiscalYear, bool) {
 		}
 	}
 	return best, found
+}
+
+// FiscalPeriodFor locates the fiscal year and booking period containing date.
+// Bounds are compared as instants: callers pass the UTC midnight of the
+// posting date while Scopevisio period boundaries are Berlin midnights. When
+// the containing year carries no periods, the year itself is returned as a
+// synthetic period.
+func FiscalPeriodFor(years []FiscalYear, date time.Time) (FiscalYear, FiscalPeriod, bool) {
+	for _, fy := range years {
+		end := fy.End
+		if end.IsZero() {
+			end = FiscalYearEnd(years, fy)
+		}
+		if fy.Beginning.IsZero() || date.Before(fy.Beginning) || date.After(end) {
+			continue
+		}
+		if len(fy.Periods) == 0 {
+			return fy, FiscalPeriod{Name: fy.Name, Beginning: fy.Beginning, End: end, Open: fy.Open}, true
+		}
+		for _, period := range fy.Periods {
+			if !date.Before(period.Beginning) && !date.After(period.End) {
+				return fy, period, true
+			}
+		}
+		return fy, FiscalPeriod{}, false
+	}
+	return FiscalYear{}, FiscalPeriod{}, false
 }
 
 // FiscalYearEnd derives the end-of-year date from the next fiscal year's

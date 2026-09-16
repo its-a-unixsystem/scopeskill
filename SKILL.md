@@ -46,6 +46,7 @@ Follow this escalation pattern when interacting with Scopevisio:
 | Check a customer/vendor account         | `debitor show` / `kreditor show`         | Investigating personal accounts linked to a Kontakt                 |
 | Find open invoices/vouchers             | `offene-posten list --seite=...`         | Looking for unsettled items on either the debitor or kreditor side  |
 | Search chronological postings           | `journal search`                         | You need to see the ledger entries (Buchungen)                      |
+| Create one reviewed Buchung             | `buchung create --data @f --dry-run`, then `--yes`  | Only from an approved Buchungssatz; never invent accounts/tax keys   |
 | View an incoming invoice                | `eingangsrechnung show`                  | Investigating vendor-side Belege (documents)                        |
 | Fetch accounting metadata               | `buchhaltung info` / `dimension search`  | Need context on how the system is configured                        |
 | Browse Teamworkbridge collections       | `get /teamworkbridge/collections`        | Navigating the remote CenterDevice document tree                    |

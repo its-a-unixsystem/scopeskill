@@ -713,7 +713,7 @@ commands:
   gutschrift        search and inspect Gutschriften
   offene-posten     search and inspect Offene Posten
   journal           search the Journal (chronological postings)
-  buchung           inspect a single Buchung (posting)`)
+  buchung           inspect a single Buchung (posting) or create one`)
 	return nil
 }
 

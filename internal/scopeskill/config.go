@@ -47,6 +47,7 @@ func LoadClientConfig(configPath string) (Config, error) {
 		ConfigPath:       path,
 		BaseURL:          valueOrDefault(values[ConfigKeyBaseURL], DefaultBaseURL),
 		Customer:         values[ConfigKeyCustomer],
+		SKR:              values[ConfigKeySKR],
 		RefreshToken:     values[ConfigKeyRestRefreshToken],
 		AccessTokenCache: os.Getenv(EnvAccessTokenCache),
 	}

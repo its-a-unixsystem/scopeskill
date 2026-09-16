@@ -145,6 +145,10 @@ Search, inspect, and repair vendor-side Belege with stitched Kontakt data.
   Filters: `--document-number`, `--vendor-name`, `--content-state`, `--payment-state`, `--posting-state`.
 - `sv-cli eingangsrechnung show <Belegnummer>` / `sv-cli gutschrift show <Belegnummer>`
   Show the Beleg and its associated Kontakt when one can be resolved.
+- `sv-cli eingangsrechnung file <idOrNumber> [--out <file>]`
+  Download the main Local file for an Eingangsrechnung from `/incominginvoice/{idOrNumber}/file`. Without `--out`, use the response filename. The identifier accepts only the internal number or ID, not the external vendor invoice number.
+- `sv-cli eingangsrechnung link <idOrNumber>`
+  Print the Teamwork web link returned by `/incominginvoice/{idOrNumber}/teamworkFileLink`. The identifier accepts only the internal number or ID, not the external vendor invoice number.
 - `sv-cli eingangsrechnung update <idOrNumber> [flags] [--dry-run] [--yes]`
   Repair an unverified Eingangsrechnung via `POST /incominginvoice/{id}`.
   Flags: `--vendor-contact-id=N`, `--document-number=VALUE`,

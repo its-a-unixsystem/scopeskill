@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/its-a-unixsystem/scopeskill/internal/scopeskill"
 )
@@ -56,7 +57,7 @@ func beleg(client *scopeskill.Client, kind belegKind, args []string) error {
 	if len(args) == 0 {
 		subcommands := "search show"
 		if kind.command == eingangsrechnungKind.command {
-			subcommands = "search show update"
+			subcommands = "search show file link update"
 		}
 		fmt.Fprintf(cliOutput, "%s subcommands: %s\n", kind.command, subcommands)
 		return fmt.Errorf("missing %s subcommand", kind.command)
@@ -66,6 +67,16 @@ func beleg(client *scopeskill.Client, kind belegKind, args []string) error {
 		return belegSearch(client, kind, args[1:])
 	case "show":
 		return belegShow(client, kind, args[1:])
+	case "file":
+		if kind.command != eingangsrechnungKind.command {
+			return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
+		}
+		return eingangsrechnungFile(client, args[1:])
+	case "link":
+		if kind.command != eingangsrechnungKind.command {
+			return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
+		}
+		return eingangsrechnungLink(client, args[1:])
 	case "update":
 		if kind.command != eingangsrechnungKind.command {
 			return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
@@ -74,6 +85,48 @@ func beleg(client *scopeskill.Client, kind belegKind, args []string) error {
 	default:
 		return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
 	}
+}
+
+func eingangsrechnungFile(client *scopeskill.Client, args []string) error {
+	flags := flag.NewFlagSet("eingangsrechnung file", flag.ContinueOnError)
+	flags.SetOutput(cliError)
+	out := flags.String("out", "", "output file path; defaults to the response filename")
+	flags.Usage = func() { fmt.Fprintln(cliError, "usage: sv-cli eingangsrechnung file <idOrNumber> [--out <file>]") }
+	if err := flags.Parse(normalizeFlagArgs(args)); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 {
+		flags.Usage()
+		return errors.New("eingangsrechnung file takes exactly one idOrNumber")
+	}
+	path, err := client.DownloadNamed("/incominginvoice/"+url.PathEscape(flags.Arg(0))+"/file", *out, nil)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(cliOutput, path)
+	return nil
+}
+
+func eingangsrechnungLink(client *scopeskill.Client, args []string) error {
+	flags := flag.NewFlagSet("eingangsrechnung link", flag.ContinueOnError)
+	flags.SetOutput(cliError)
+	flags.Usage = func() { fmt.Fprintln(cliError, "usage: sv-cli eingangsrechnung link <idOrNumber>") }
+	if err := flags.Parse(normalizeFlagArgs(args)); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 {
+		flags.Usage()
+		return errors.New("eingangsrechnung link takes exactly one idOrNumber")
+	}
+	result, err := client.JSON(http.MethodGet, "/incominginvoice/"+url.PathEscape(flags.Arg(0))+"/teamworkFileLink", nil, nil)
+	if err != nil {
+		return err
+	}
+	if link, ok := result.(string); ok {
+		fmt.Fprintln(cliOutput, link)
+		return nil
+	}
+	return printJSON(result)
 }
 
 func belegSearchUsage(kind belegKind) string {

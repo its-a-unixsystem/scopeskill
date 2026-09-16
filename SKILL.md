@@ -45,7 +45,7 @@ Follow this escalation pattern when interacting with Scopevisio:
 | Check a specific impersonal account     | `sachkonto show` / `balance`             | Investigating G/L (General Ledger) accounts                         |
 | Check a customer/vendor account         | `debitor show` / `kreditor show`         | Investigating personal accounts linked to a Kontakt                 |
 | Find open invoices/vouchers             | `offene-posten list --seite=...`         | Looking for unsettled items on either the debitor or kreditor side  |
-| Clear reviewed Offene Posten             | `offene-posten ausgleichen --seite=... --data @f --dry-run`, then `--yes` | Only from an approved clearing payload |
+| Clear reviewed creditor open items      | `offene-posten clear --seite=kreditor --data @f --dry-run`, then `--yes` | Only from an approved payment-to-Beleg mapping |
 | Search chronological postings           | `journal search`                         | You need to see the ledger entries (Buchungen)                      |
 | Create one reviewed Buchung             | `buchung create --data @f --dry-run`, then `--yes`  | Only from an approved Buchungssatz; never invent accounts/tax keys   |
 | Cancel one reviewed Buchung             | `buchung cancel <nr> --dry-run`, then `--yes`       | Only after the user approved cancelling this exact documentNumber     |
@@ -71,11 +71,17 @@ sv-cli kreditor balance 70019
 sv-cli offene-posten list --seite=kreditor --konto=70019 --all
 ```
 
-Clearing Offene Posten is a separate write from posting a payment. Build the
-provider-shaped JSON payload, run `offene-posten ausgleichen --seite=... --data
-@clearing.json --dry-run`, show the preview to the user, and only re-run with
-`--yes` after explicit approval. The command sends one request and never
-retries it.
+Clearing Offene Posten is a separate write from posting a payment. Build a
+CLI-owned payload with one `paymentDocumentNumber` and explicit
+`items[].documentNumber` / `items[].clearingAmount` values. For documents with
+earlier allocations, carry the approved expected before-state in
+`paymentOpenAmount` and every `items[].openAmount`; supply all fields together.
+Run `offene-posten clear --seite=kreditor --data @clearing.json --dry-run`,
+show the preflight preview to the user, and only re-run with `--yes` after
+explicit approval. Add `--allow-partial` only when the approved mapping
+intentionally leaves an item balance. The command verifies the live Kreditor,
+currency, and balances, sends at most one request, and reads every affected
+balance back.
 
 ### Ledger Postings (Journal)
 Search for specific postings by account or amount:

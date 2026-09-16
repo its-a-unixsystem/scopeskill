@@ -579,3 +579,56 @@ func TestBelegSearchRejectsDataWithPagination(t *testing.T) {
 		t.Fatalf("requests = %#v", stub.searchBodies)
 	}
 }
+func TestEingangsrechnungFileDownloadsWithResponseFilename(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			writeJSONForCLI(w, map[string]any{"token_type": "Bearer", "access_token": "access", "expires_in": 3600})
+		case "/rest/incominginvoice/2026-1/file":
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %s", r.Method)
+			}
+			w.Header().Set("Content-Disposition", `attachment; filename="incoming-invoice.pdf"`)
+			_, _ = io.WriteString(w, "invoice bytes")
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	t.Chdir(dir)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", postingConfigPath(t, server.URL), "eingangsrechnung", "file", "2026-1"}); err != nil {
+		t.Fatal(err)
+	}
+	assertDownloadedFile(t, filepath.Join(dir, "incoming-invoice.pdf"))
+	if strings.TrimSpace(output.String()) != "incoming-invoice.pdf" {
+		t.Fatalf("stdout = %q", output.String())
+	}
+}
+
+func TestEingangsrechnungLinkPrintsURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			writeJSONForCLI(w, map[string]any{"token_type": "Bearer", "access_token": "access", "expires_in": 3600})
+		case "/rest/incominginvoice/2026-1/teamworkFileLink":
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %s", r.Method)
+			}
+			writeJSONForCLI(w, "https://teamwork.example/file/abc")
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", postingConfigPath(t, server.URL), "eingangsrechnung", "link", "2026-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(output.String()) != "https://teamwork.example/file/abc" {
+		t.Fatalf("stdout = %q", output.String())
+	}
+}

@@ -54,7 +54,7 @@ func journal(client *scopeskill.Client, args []string) error {
 
 func buchung(client *scopeskill.Client, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintln(cliOutput, "buchung subcommands: show create cancel replace file")
+		fmt.Fprintln(cliOutput, "buchung subcommands: show create cancel correct correct-import replace file")
 		return errors.New("missing buchung subcommand")
 	}
 	switch args[0] {
@@ -62,6 +62,10 @@ func buchung(client *scopeskill.Client, args []string) error {
 		return buchungCreate(client, args[1:])
 	case "cancel":
 		return buchungCancel(client, args[1:])
+	case "correct":
+		return buchungCorrect(client, args[1:])
+	case "correct-import":
+		return buchungCorrectImport(client, args[1:])
 	case "replace":
 		return buchungReplace(client, args[1:])
 	case "file":

@@ -151,6 +151,11 @@ func TestDebitorSearchByNumberPostsExpectedBody(t *testing.T) {
 	if len(bodies) != 1 {
 		t.Fatalf("debitor account requests = %d", len(bodies))
 	}
+	for _, field := range bodies[0]["fields"].([]any) {
+		if field == "active" {
+			t.Fatalf("unsupported active field requested: %#v", bodies[0]["fields"])
+		}
+	}
 	search := bodies[0]["search"].([]any)
 	cond := search[0].(map[string]any)
 	if cond["field"] != "number" || cond["operator"] != "equals" || cond["value"] != "10000" {
@@ -201,30 +206,17 @@ func TestDebitorSearchByNameRoutesThroughKontakt(t *testing.T) {
 	}
 }
 
-func TestKreditorSearchUsesKreditorEndpointAndActiveFilter(t *testing.T) {
+func TestPersonalAccountSearchRejectsUnsupportedActiveFilterWithoutRequest(t *testing.T) {
 	stub := newPersonalAccountStub(t)
 	configPath := sachkontoConfigPath(t, stub.server.URL)
 	withCLI(t, "", false)
 
-	if err := run([]string{"--config", configPath, "kreditor", "search", "--number-prefix=70", "--active"}); err != nil {
-		t.Fatal(err)
+	err := run([]string{"--config", configPath, "kreditor", "search", "--number-prefix=70", "--active"})
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -active") {
+		t.Fatalf("error = %v", err)
 	}
-
-	bodies := stub.accountBodies["/rest/kreditoraccounts"]
-	if len(bodies) != 1 {
-		t.Fatalf("kreditor account requests = %d", len(bodies))
-	}
-	search := bodies[0]["search"].([]any)
-	if len(search) != 2 {
-		t.Fatalf("conditions = %#v", search)
-	}
-	first := search[0].(map[string]any)
-	if first["field"] != "number" || first["operator"] != "startswith" || first["value"] != "70" {
-		t.Fatalf("number-prefix condition = %#v", first)
-	}
-	second := search[1].(map[string]any)
-	if second["field"] != "active" || second["operator"] != "equals" || second["value"] != true {
-		t.Fatalf("active condition = %#v", second)
+	if len(stub.accountBodies["/rest/kreditoraccounts"]) != 0 {
+		t.Fatalf("account requests = %#v", stub.accountBodies)
 	}
 }
 

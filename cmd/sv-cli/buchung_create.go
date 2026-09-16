@@ -53,9 +53,13 @@ type resolvedAccount struct {
 	personal bool
 }
 
-func (a resolvedAccount) active() bool {
-	active, _ := a.record["active"].(bool)
-	return active
+func (a resolvedAccount) postable() bool {
+	value, present := a.record["active"]
+	if !present {
+		return a.personal
+	}
+	active, ok := value.(bool)
+	return ok && active
 }
 
 func buchungCreate(client *scopeskill.Client, args []string) error {
@@ -107,7 +111,7 @@ func buchungCreate(client *scopeskill.Client, args []string) error {
 		if account == nil {
 			return fmt.Errorf("rows[%d]: account %s not found", i+1, row.Account)
 		}
-		if !account.active() {
+		if !account.postable() {
 			return fmt.Errorf("rows[%d]: account %s is inactive", i+1, row.Account)
 		}
 		if !account.personal {
@@ -123,7 +127,7 @@ func buchungCreate(client *scopeskill.Client, args []string) error {
 		if summary == nil || summary.personal {
 			return fmt.Errorf("rows[%d]: summaryAccount %s not found", i+1, row.SummaryAccount)
 		}
-		if !summary.active() {
+		if !summary.postable() {
 			return fmt.Errorf("rows[%d]: summaryAccount %s is inactive", i+1, row.SummaryAccount)
 		}
 	}

@@ -181,7 +181,7 @@ func buchungCancel(client *scopeskill.Client, args []string) error {
 		if account == nil {
 			return cancelConflict(documentNumber, fmt.Sprintf("account %s not found", row.Account), nil)
 		}
-		if !account.active() {
+		if !account.postable() {
 			return cancelConflict(documentNumber, fmt.Sprintf("account %s is inactive", row.Account), nil)
 		}
 	}

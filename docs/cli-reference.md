@@ -103,7 +103,7 @@ Search and inspect personal accounts linked to a Kontakt.
 
 - `sv-cli debitor search [filters] [--all]` / `sv-cli kreditor search [filters] [--all]`
   Search for Debitoren or Kreditoren.
-  Filters: `--name`, `--number`, `--number-prefix`, `--active`.
+  Filters: `--name`, `--number`, `--number-prefix`.
 - `sv-cli debitor show <Kontonummer>` / `sv-cli kreditor show <Kontonummer>`
   Show the account details.
 - `sv-cli debitor balance <Kontonummer> [--from=YYYY-MM-DD] [--to=YYYY-MM-DD]` / `sv-cli kreditor balance ...`

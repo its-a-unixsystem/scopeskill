@@ -65,6 +65,12 @@ func buchungCorrect(client *scopeskill.Client, args []string) error {
 		}
 		return errors.New("correction write requires verification")
 	}
+	if records, err := fetchCompleteJournal(client, in.DocumentNumber); err != nil || len(records) == 0 {
+		if err == nil {
+			err = errors.New("correction document not found in journal")
+		}
+		return fmt.Errorf("correction verification required for %s: %w", in.DocumentNumber, err)
+	}
 	out := map[string]any{"status": "corrected", "documentNumber": in.DocumentNumber, "endpoint": "POST /correctpostings", "request": payload}
 	if result != nil {
 		out["response"] = result
@@ -125,6 +131,15 @@ func buchungCorrectImport(client *scopeskill.Client, args []string) error {
 			return writeErr
 		}
 		return errors.New("correction import requires verification")
+	}
+	for _, in := range inputs {
+		records, err := fetchCompleteJournal(client, in.DocumentNumber)
+		if err != nil || len(records) == 0 {
+			if err == nil {
+				err = errors.New("correction document not found in journal")
+			}
+			return fmt.Errorf("correction verification required for %s: %w", in.DocumentNumber, err)
+		}
 	}
 	out := map[string]any{"status": "corrected", "endpoint": "POST /postings/correction", "count": len(payload)}
 	if result != nil {

@@ -56,6 +56,7 @@ func dimensionEntryWrite(client *scopeskill.Client, args []string, operation str
 	if operation == "create" {
 		suffix, status = "/dimensionentry/new", "created"
 	}
+	// DimensionEntryForm requires locked; the update endpoint contract changes only the name.
 	payload := map[string]any{"number": *number, "name": *entryName, "locked": false}
 	path := "/dimensions/" + url.PathEscape(flags.Arg(0)) + suffix
 	req := writeRequest{Command: "dimension entry " + operation, Method: http.MethodPost, Path: path, Payload: payload, ConfirmPhrase: fmt.Sprintf("%s dimension entry %s/%d", operation, flags.Arg(0), *number)}

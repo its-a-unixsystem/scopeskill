@@ -103,7 +103,7 @@ func TestDimensionEntryCommandsPostExpectedEndpoints(t *testing.T) {
 			if len(stub.hits) != 1 || stub.hits[0] != "POST "+tc.endpoint {
 				t.Fatalf("hits = %#v, want POST %s", stub.hits, tc.endpoint)
 			}
-			if len(stub.bodies) != 1 || stub.bodies[0]["number"] != float64(100) || stub.bodies[0]["name"] != "IT" {
+			if len(stub.bodies) != 1 || stub.bodies[0]["number"] != float64(100) || stub.bodies[0]["name"] != "IT" || stub.bodies[0]["locked"] != false {
 				t.Fatalf("bodies = %#v", stub.bodies)
 			}
 			if output.Len() == 0 {

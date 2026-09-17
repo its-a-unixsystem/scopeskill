@@ -14,6 +14,7 @@ import (
 const buchungUpdateUsage = `usage: sv-cli buchung update <documentNumber> [flags]
 
 Updates internal and/or external document numbers for an existing posting via PUT /postings/update.
+Under GoBD rules, accounts, amounts, tax keys, and dates are immutable on existing postings; only document numbers may be adjusted.
 
 Flags:
   --internal-number=STR    set internalDocumentNumber

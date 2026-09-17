@@ -120,6 +120,37 @@ func TestBuchungUpdateSuccess(t *testing.T) {
 	}
 }
 
+func TestBuchungUpdateNumbersAlias(t *testing.T) {
+	called := false
+	server := buchungUpdateServer(t, func(body map[string]any) {
+		called = true
+	})
+	defer server.Close()
+
+	config := postingConfigPath(t, server.URL)
+	stdout, _ := withCLI(t, "", false)
+
+	err := run([]string{
+		"--config", config,
+		"buchung", "update-numbers", "DOC-250",
+		"--external-number=EXT-250",
+		"--yes",
+	})
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if !called {
+		t.Fatal("expected PUT via update-numbers alias")
+	}
+	var res map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
+		t.Fatalf("parse stdout: %v", err)
+	}
+	if res["status"] != "updated" {
+		t.Fatalf("unexpected status: %v", res["status"])
+	}
+}
+
 func TestBuchungUpdateWithFile(t *testing.T) {
 	var capturedBody map[string]any
 	server := buchungUpdateServer(t, func(body map[string]any) {

@@ -128,6 +128,14 @@ _Avoid_: Account balance
 A configured sequential number range in Scopevisio from which **Debitor**, **Kreditor**, or **Beleg** numbers are automatically generated.
 _Avoid_: Number range, account range
 
+**Fiskaljahr**:
+A designated financial accounting year comprising sequential **Buchungsperioden**, having an open or closed status that governs whether **Buchungen** or settlement operations may be posted.
+_Avoid_: Fiscal year when speaking in domain context, calendar year
+
+**Buchungsperiode**:
+A discrete monthly or year-end closing time window within a **Fiskaljahr** against which **Buchungen** are recorded; postings cannot mutate closed periods.
+_Avoid_: Accounting period, booking month
+
 **Buchung**:
 A single posting in the **Journal**: at minimum a Soll/Haben pair on Konten with an amount and a Buchungsdatum, plus optional Steuerschlüssel and Dimensionen.
 _Avoid_: Posting line, journal entry
@@ -257,6 +265,9 @@ _Avoid_: Travel entries
 - An **Offene Posten** entry references the **Beleg** that originated it and the **Kontakt** owning the **Debitor** or **Kreditor** side.
 - The **`sv-cli`** stitches data on `show`-style commands when the second piece is reliably co-requested, but never on list-style commands (N+1 risk) and never derives business answers (see ADR-0006).
 - Scopevisio's **SuSa** omits accounts that have no postings or carryover in the queried date range; **Saldo** queries synthesize a zeroed record for an existing account rather than treating omission as an error.
+- A **Fiskaljahr** partitions the ledger into chronological **Buchungsperioden**; postings or settlements targeting closed periods or closed **Fiskaljahre** are rejected by the provider. `sv-cli buchhaltung fiscalyears` delivers the raw periods structure unchanged without deriving the active period.
+- An **Eingangsrechnung** enters Scopevisio via PDF ingestion (`sv-cli eingangsrechnung import`) into the incoming invoice inbox (*Rechnungseingangsbuch*) without business metadata (`contentStateId=0`, `postingStateId=0`); metadata enrichment (`sv-cli eingangsrechnung update`) is performed as a separate, subsequent step.
+- An existing **Buchung** is immutable regarding accounts, amounts, tax keys, and posting dates under GoBD; only `internalDocumentNumber` and `externalDocumentNumber` may be modified in place via `sv-cli buchung update`.
 
 ## Example dialogue
 

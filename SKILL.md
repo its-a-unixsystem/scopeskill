@@ -155,6 +155,13 @@ Attaching a Beleg is also a write operation. Run `buchung file add <nr> <file>
 with `buchung file get <nr>` or add `--with-stamp` for the invoice-stamped
 rendering. Use `--out` only when the provider response filename is unsuitable.
 
+Updating document numbers on an existing Buchung is also a write operation:
+run `buchung update <nr> --internal-number=... --external-number=... --dry-run`,
+verify the preview, and re-run with `--yes` after explicit approval. Under GoBD
+rules, accounts, amounts, tax keys, and posting dates are strictly immutable on
+existing postings and cannot be edited in place (use `buchung cancel` and
+`buchung create` instead).
+
 ### Belege (Invoices & Credits)
 Search for specific documents or filter by workflow state. Note that workflow states are integers (e.g., `0` = Unbearbeitet):
 ```bash
@@ -171,6 +178,16 @@ sv-cli eingangsrechnung search --document-number="INV-1234"
 sv-cli get /incominginvoice/<id>
 ```
 
+Ingesting a new vendor invoice into Scopevisio follows a distinct two-step
+lifecycle:
+1. **Ingest raw PDF:** `sv-cli eingangsrechnung import --file=invoice.pdf --dry-run`,
+   then re-run with `--yes` after approval. Scopevisio ingests the PDF into the
+   invoice inbox (*Rechnungseingangsbuch*) as an unposted, unverified Beleg
+   (`contentStateId=0`, `postingStateId=0`).
+2. **Enrich or repair metadata:** Use `eingangsrechnung update <id>
+   --vendor-contact-id=N --document-date=YYYY-MM-DD ...` to supply missing
+   vendor or date attributes before verification.
+
 Repairing an Eingangsrechnung is a write operation: run `eingangsrechnung
 update <idOrNumber> --vendor-contact-id=N --document-date=YYYY-MM-DD ...`
 first with `--dry-run`, show the preview to the user, and re-run with `--yes`
@@ -179,6 +196,15 @@ to epoch milliseconds automatically. The command refuses to write when the
 Beleg already carries every requested value (`already_up_to_date`), so a
 retried repair is safe. Updates are only possible before the Beleg is
 verified.
+
+### Fiscal Periods
+Inspect open and closed fiscal years and booking periods:
+```bash
+# List open fiscal periods using jq:
+sv-cli buchhaltung fiscalyears | jq '.years[] | select(.open == true)'
+```
+Postings or settlements targeting closed fiscal periods or years will be
+rejected by the provider.
 
 ## Teamworkbridge Integration
 

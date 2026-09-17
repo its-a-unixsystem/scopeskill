@@ -66,7 +66,7 @@ func buchung(client *scopeskill.Client, args []string) error {
 		return buchungCorrect(client, args[1:])
 	case "correct-import":
 		return buchungCorrectImport(client, args[1:])
-	case "update":
+	case "update", "update-numbers":
 		return buchungUpdate(client, args[1:])
 	case "replace":
 		return buchungReplace(client, args[1:])

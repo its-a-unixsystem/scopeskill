@@ -11,7 +11,7 @@ import (
 
 func buchhaltung(client *scopeskill.Client, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintln(cliOutput, "buchhaltung subcommands: info mapping gewinn-und-verlust")
+		fmt.Fprintln(cliOutput, "buchhaltung subcommands: info mapping gewinn-und-verlust fiscalyears")
 		return errors.New("missing buchhaltung subcommand")
 	}
 	switch args[0] {
@@ -21,6 +21,8 @@ func buchhaltung(client *scopeskill.Client, args []string) error {
 		return buchhaltungGet(client, "buchhaltung mapping", "/accountmapping", args[1:])
 	case "gewinn-und-verlust":
 		return buchhaltungGewinnUndVerlust(client, args[1:])
+	case "fiscalyears", "fiskaljahr", "fiskaljahre":
+		return buchhaltungGet(client, "buchhaltung fiscalyears", "/fiscalyears", args[1:])
 	default:
 		return fmt.Errorf("unknown buchhaltung command: %s", args[0])
 	}

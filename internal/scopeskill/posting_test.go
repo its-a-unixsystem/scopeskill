@@ -92,6 +92,8 @@ func TestParseSinglePostingInputRejections(t *testing.T) {
 		{"cancelDocument", `{"documentNumber":"P-1","postingDate":"2025-06-02","cancelDocument":true,` + validRows + `}`, "unknown field"},
 		{"dimensionId kostenstelle", `{"documentNumber":"P-1","postingDate":"2025-06-02","rows":[{"account":"4400","amount":119.00,"dimensions":[{"dimensionId":"kostenstelle","dimensionAccountNumber":"111"}]},{"account":"1200","amount":-119.00}]}`, "dimensionId"},
 		{"dimensionId out of range", `{"documentNumber":"P-1","postingDate":"2025-06-02","rows":[{"account":"4400","amount":119.00,"dimensions":[{"dimensionId":"dimension_11","dimensionAccountNumber":"111"}]},{"account":"1200","amount":-119.00}]}`, "dimensionId"},
+		{"unbalanced rows", `{"documentNumber":"P-1","postingDate":"2025-06-02","rows":[{"account":"4400","amount":119.00},{"account":"1200","amount":-100.00}]}`, "rows must balance to zero"},
+		{"unbalanced rows with autoCreateTax=false", `{"documentNumber":"P-1","postingDate":"2025-06-02","autoCreateTax":false,"rows":[{"account":"4400","amount":100.00,"vatKey":"U19"},{"account":"1200","amount":-119.00}]}`, "rows must balance to zero"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -100,6 +102,15 @@ func TestParseSinglePostingInputRejections(t *testing.T) {
 				t.Fatalf("error = %v, want substring %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseSinglePostingInputAutoCreateTaxAllowsNetRows(t *testing.T) {
+	// With autoCreateTax the provider adds the tax rows, so the payload's
+	// net rows do not balance to zero.
+	raw := `{"documentNumber":"P-1","postingDate":"2025-06-02","autoCreateTax":true,"rows":[{"account":"4400","amount":100.00,"vatKey":"U19"},{"account":"1200","amount":-119.00}]}`
+	if _, err := ParseSinglePostingInput([]byte(raw)); err != nil {
+		t.Fatalf("error = %v", err)
 	}
 }
 

@@ -177,6 +177,17 @@ func (in SinglePostingInput) Validate() error {
 			}
 		}
 	}
+	// With autoCreateTax=true the provider adds the tax rows, so the payload's
+	// net rows do not balance to zero.
+	if in.AutoCreateTax == nil || !*in.AutoCreateTax {
+		total := int64(0)
+		for _, row := range in.Rows {
+			total += row.Amount.cents
+		}
+		if total != 0 {
+			return fmt.Errorf("rows must balance to zero, sum is %s; provide complete tax rows or set autoCreateTax=true", Amount{cents: total})
+		}
+	}
 	return nil
 }
 

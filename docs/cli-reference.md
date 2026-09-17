@@ -306,9 +306,11 @@ Search chronological postings (Buchungen).
   ```
 
   `summaryAccount` is required on rows that post to a Personenkonto. The command
-  runs read-only preflight checks for the fiscal period, accounts, tax keys, and
-  duplicate Buchungen. It searches the Journal for identical Buchungen when
-  Scopevisio assigned a different document number. The command prints the exact
+  runs read-only preflight checks for the fiscal period, accounts, tax keys,
+  duplicate Buchungen, and the row balance: rows must sum to zero unless
+  `autoCreateTax=true` lets Scopevisio create the tax rows. It searches the
+  Journal for identical Buchungen when Scopevisio assigned a different document
+  number. The command prints the exact
   payload to stderr. Without `--yes`, a TTY user must type `create
   <documentNumber>`. Without a TTY, the command fails before the write. The
   command sends the write exactly once and reads the final Buchung from the

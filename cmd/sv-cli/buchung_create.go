@@ -24,7 +24,9 @@ Input schema (--data JSON or @file):
   documentText              optional
   autoCreateTax             optional bool; passed through verbatim
   adjustVatKey              optional bool; passed through verbatim
-  rows                      required; at least two PostingRows
+  rows                      required; at least two PostingRows; must balance
+                            to zero unless autoCreateTax=true creates the
+                            tax rows
 
 Row fields:
   account                   required; Sachkonto, Debitor, or Kreditor number

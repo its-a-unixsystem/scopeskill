@@ -279,6 +279,31 @@ func TestBuchungCreateDryRunAcceptsPersonalAccountsWithoutActiveField(t *testing
 	}
 }
 
+func TestBuchungCreateDryRunAcceptsNetRowsWithAutoCreateTax(t *testing.T) {
+	stub := newHappyPostingStub(t)
+	configPath := postingConfigPath(t, stub.server.URL)
+	dataPath := postingFixture(t, map[string]any{
+		"documentNumber": "P-2025-1",
+		"postingDate":    "2025-06-02",
+		"autoCreateTax":  true,
+		"rows": []any{
+			map[string]any{"account": "4400", "amount": 100.00, "vatKey": "U19"},
+			map[string]any{"account": "1200", "amount": -119.00},
+		},
+	})
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "buchung", "create", "--data", "@" + dataPath, "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := stdoutStatus(t, output.String()); got["status"] != "dry_run" {
+		t.Fatalf("stdout = %s", output.String())
+	}
+	if stub.writeCount() != 0 {
+		t.Fatalf("writes = %d", stub.writeCount())
+	}
+}
+
 func matchingJournalRows() []any {
 	return matchingJournalRowsFor("P-2025-1")
 }
@@ -351,6 +376,12 @@ func TestBuchungCreatePreflightFailures(t *testing.T) {
 				map[string]any{"account": "1200", "amount": -119.00},
 			}
 		}, "summaryAccount is required for Personenkonto 70001"},
+		{"unbalanced rows", func(_ *postingStub, input map[string]any) {
+			input["rows"] = []any{
+				map[string]any{"account": "4400", "amount": 119.00, "vatKey": "U19"},
+				map[string]any{"account": "1200", "amount": -100.00},
+			}
+		}, "rows must balance to zero"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

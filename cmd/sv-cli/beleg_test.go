@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -630,5 +631,139 @@ func TestEingangsrechnungLinkPrintsURL(t *testing.T) {
 	}
 	if strings.TrimSpace(output.String()) != "https://teamwork.example/file/abc" {
 		t.Fatalf("stdout = %q", output.String())
+	}
+}
+
+func TestEingangsrechnungImportDryRun(t *testing.T) {
+	postHit := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			writeJSONForCLI(w, map[string]any{"token_type": "Bearer", "access_token": "access", "expires_in": 3600})
+		case "/rest/incominginvoice/new":
+			postHit = true
+			writeJSONForCLI(w, map[string]any{"status": "ok"})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	filePath := filepath.Join(t.TempDir(), "invoice.pdf")
+	if err := os.WriteFile(filePath, []byte("%PDF-dummy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr := withCLI(t, "", false)
+	err := run([]string{
+		"--config", postingConfigPath(t, server.URL),
+		"eingangsrechnung", "import",
+		"--file=" + filePath,
+		"--dry-run",
+	})
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if postHit {
+		t.Fatal("POST was called during dry-run")
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
+		t.Fatalf("parse stdout: %v: %s", err, stdout.String())
+	}
+	if res["status"] != "dry_run" || res["filename"] != "invoice.pdf" {
+		t.Fatalf("unexpected stdout: %v", res)
+	}
+	if !strings.Contains(stderr.String(), "sv-cli eingangsrechnung import preview") {
+		t.Fatalf("stderr missing preview: %s", stderr.String())
+	}
+}
+
+func TestEingangsrechnungImportSuccess(t *testing.T) {
+	var capturedPayload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			writeJSONForCLI(w, map[string]any{"token_type": "Bearer", "access_token": "access", "expires_in": 3600})
+		case "/rest/incominginvoice/new":
+			raw, _ := io.ReadAll(r.Body)
+			if err := json.Unmarshal(raw, &capturedPayload); err != nil {
+				t.Fatalf("unmarshal payload: %v", err)
+			}
+			writeJSONForCLI(w, map[string]any{"id": "inv-12345", "status": "Import successful."})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	content := []byte("%PDF-1.4 test invoice content")
+	filePath := filepath.Join(t.TempDir(), "vendor-bill.pdf")
+	if err := os.WriteFile(filePath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _ := withCLI(t, "", false)
+	err := run([]string{
+		"--config", postingConfigPath(t, server.URL),
+		"eingangsrechnung", "import",
+		"--file=" + filePath,
+		"--yes",
+	})
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	if capturedPayload["filename"] != "vendor-bill.pdf" {
+		t.Fatalf("unexpected filename in payload: %v", capturedPayload["filename"])
+	}
+	encoded := capturedPayload["data"].(string)
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	if string(decoded) != string(content) {
+		t.Fatalf("decoded content mismatch: got %q, want %q", string(decoded), string(content))
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
+		t.Fatalf("parse stdout: %v: %s", err, stdout.String())
+	}
+	if res["status"] != "imported" || res["filename"] != "vendor-bill.pdf" {
+		t.Fatalf("unexpected stdout: %v", res)
+	}
+}
+
+func TestEingangsrechnungImportValidation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/token":
+			writeJSONForCLI(w, map[string]any{"token_type": "Bearer", "access_token": "access", "expires_in": 3600})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	config := postingConfigPath(t, server.URL)
+
+	// Missing --file
+	if err := run([]string{"--config", config, "eingangsrechnung", "import"}); err == nil {
+		t.Fatal("expected error on missing --file")
+	}
+
+	// Missing file on disk
+	if err := run([]string{"--config", config, "eingangsrechnung", "import", "--file=nonexistent.pdf", "--yes"}); err == nil {
+		t.Fatal("expected error on nonexistent file")
+	}
+
+	// Non-interactive without --yes
+	filePath := filepath.Join(t.TempDir(), "dummy.pdf")
+	_ = os.WriteFile(filePath, []byte("dummy"), 0o600)
+	_, _ = withCLI(t, "", false)
+	err := run([]string{"--config", config, "eingangsrechnung", "import", "--file=" + filePath})
+	if err == nil || !strings.Contains(err.Error(), "requires a TTY or --yes") {
+		t.Fatalf("expected non-interactive error, got: %v", err)
 	}
 }

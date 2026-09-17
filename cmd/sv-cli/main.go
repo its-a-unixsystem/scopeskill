@@ -729,7 +729,7 @@ commands:
   statistik         search and inspect Statistik accounts and postings
   zahlungsbedingung list and inspect Zahlungsbedingungen
   steuermatrix      list Steuermatrix entries
-  eingangsrechnung  search, inspect, and repair Eingangsrechnungen
+  eingangsrechnung  search, inspect, import, and repair Eingangsrechnungen
   gutschrift        search and inspect Gutschriften
   offene-posten     search, inspect, and clear Offene Posten
   journal           search the Journal (chronological postings)

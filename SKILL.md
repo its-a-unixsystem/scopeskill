@@ -54,11 +54,13 @@ Follow this escalation pattern when interacting with Scopevisio:
 | Search Personenjournal postings         | `personenkonto journal`                  | You need to see postings for a Debitor or Kreditor in the Personenjournal |
 | Create one reviewed Buchung             | `buchung create --data @f --dry-run`, then `--yes`  | Only from an approved Buchungssatz; never invent accounts/tax keys   |
 | Cancel one reviewed Buchung             | `buchung cancel <nr> --dry-run`, then `--yes`       | Only after the user approved cancelling this exact documentNumber     |
+| Update posting document numbers         | `buchung update <nr> [flags] --dry-run`, then `--yes` | Updating internal or external document numbers on an existing Buchung |
 | Attach a Beleg to a Buchung             | `buchung file add <nr> <file> --dry-run`, then `--yes` | Only after matching the reviewed file to the exact documentNumber |
 | Retrieve a Buchung's Beleg              | `buchung file get <nr> [--with-stamp]`   | Reading the attached original or its stamped rendering             |
 | View an incoming invoice                | `eingangsrechnung show`                  | Investigating vendor-side Belege (documents)                        |
+| Ingest an incoming invoice PDF          | `eingangsrechnung import --file=f.pdf --dry-run`, then `--yes` | Uploading a vendor invoice PDF to Scopevisio |
 | Repair an incoming invoice's vendor or dates | `eingangsrechnung update <id> --dry-run`, then `--yes` | Fixing a missing `vendorContactId` or implausible `documentDate` on an unverified Beleg |
-| Fetch accounting metadata               | `buchhaltung info` / `dimension search`  | Need context on how the system is configured                        |
+| Fetch accounting metadata               | `buchhaltung info` / `fiscalyears` / `dimension search`  | Need context on how the system is configured or open periods |
 | Browse Teamworkbridge collections       | `get /teamworkbridge/collections`        | Navigating the remote CenterDevice document tree                    |
 | Upload a local file to Teamwork         | `teamwork upload <file>`                 | Pushing a file, optionally to a specific `--collection`             |
 | Download a Teamwork document            | `download /teamworkbridge/document/<id>` | Pulling a file from CenterDevice to the local disk                  |

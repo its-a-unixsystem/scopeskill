@@ -56,14 +56,27 @@ func buchungUpdate(client *scopeskill.Client, args []string) error {
 		if err != nil {
 			return err
 		}
-		if fileDoc, ok := body["documentNumber"].(string); ok && fileDoc != "" && fileDoc != docNum {
-			return fmt.Errorf("documentNumber %q in file does not match %q", fileDoc, docNum)
+		if rawDocumentNumber, exists := body["documentNumber"]; exists {
+			fileDocumentNumber, ok := rawDocumentNumber.(string)
+			if !ok {
+				return errors.New("documentNumber in --file must be a string")
+			}
+			if fileDocumentNumber != "" && fileDocumentNumber != docNum {
+				return fmt.Errorf("documentNumber %q in file does not match %q", fileDocumentNumber, docNum)
+			}
 		}
-		if v, ok := body["internalDocumentNumber"].(string); ok && v != "" {
-			payload["internalDocumentNumber"] = v
-		}
-		if v, ok := body["externalDocumentNumber"].(string); ok && v != "" {
-			payload["externalDocumentNumber"] = v
+		for _, field := range []string{"internalDocumentNumber", "externalDocumentNumber"} {
+			rawValue, exists := body[field]
+			if !exists {
+				continue
+			}
+			value, ok := rawValue.(string)
+			if !ok {
+				return fmt.Errorf("%s in --file must be a string", field)
+			}
+			if value != "" {
+				payload[field] = value
+			}
 		}
 	}
 
@@ -106,12 +119,17 @@ func buchungUpdate(client *scopeskill.Client, args []string) error {
 		return err
 	}
 
-	// Read back the updated posting
 	fetchNum := docNum
 	if in, ok := payload["internalDocumentNumber"].(string); ok && in != "" {
 		fetchNum = in
 	}
-	readback, readErr := client.JSON(http.MethodGet, "/journal/"+url.PathEscape(fetchNum), nil, nil)
+	readback, err := client.JSON(http.MethodGet, "/journal/"+url.PathEscape(fetchNum), nil, nil)
+	if err != nil {
+		return fmt.Errorf("read back updated buchung: %w", err)
+	}
+	if readback == nil {
+		return errors.New("read back updated buchung: empty journal response")
+	}
 	out := map[string]any{
 		"status":         "updated",
 		"documentNumber": docNum,
@@ -122,8 +140,6 @@ func buchungUpdate(client *scopeskill.Client, args []string) error {
 	if en, ok := payload["externalDocumentNumber"].(string); ok && en != "" {
 		out["externalDocumentNumber"] = en
 	}
-	if readErr == nil && readback != nil {
-		out["buchung"] = readback
-	}
+	out["buchung"] = readback
 	return printJSON(out)
 }

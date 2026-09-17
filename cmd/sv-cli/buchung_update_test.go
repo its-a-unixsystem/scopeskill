@@ -21,7 +21,9 @@ func buchungUpdateServer(t *testing.T, onPut func(body map[string]any)) *httptes
 			raw, _ := io.ReadAll(r.Body)
 			var body map[string]any
 			if err := json.Unmarshal(raw, &body); err != nil {
-				t.Fatalf("unmarshal PUT body: %v", err)
+				t.Errorf("unmarshal PUT body: %v", err)
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
 			}
 			if onPut != nil {
 				onPut(body)
@@ -120,6 +122,38 @@ func TestBuchungUpdateSuccess(t *testing.T) {
 	}
 }
 
+func TestBuchungUpdateFailsWhenReadbackFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/rest/token":
+			writeJSONForCLI(w, map[string]any{"token_type": "Bearer", "access_token": "test", "expires_in": 3600})
+		case r.URL.Path == "/rest/postings/update" && r.Method == http.MethodPut:
+			writeJSONForCLI(w, map[string]any{"status": 200, "message": "Successfully updated"})
+		case strings.HasPrefix(r.URL.Path, "/rest/journal/") && r.Method == http.MethodGet:
+			http.Error(w, "readback unavailable", http.StatusInternalServerError)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	config := postingConfigPath(t, server.URL)
+	stdout, _ := withCLI(t, "", false)
+	err := run([]string{
+		"--config", config,
+		"buchung", "update", "DOC-225",
+		"--external-number=EXT-225",
+		"--yes",
+	})
+	if err == nil || !strings.Contains(err.Error(), "readback unavailable") {
+		t.Fatalf("expected journal readback error, got %v", err)
+	}
+	if strings.Contains(stdout.String(), `"status": "updated"`) {
+		t.Fatalf("unexpected success output: %s", stdout.String())
+	}
+}
+
 func TestBuchungUpdateNumbersAlias(t *testing.T) {
 	called := false
 	server := buchungUpdateServer(t, func(body map[string]any) {
@@ -192,6 +226,31 @@ func TestBuchungUpdateWithFile(t *testing.T) {
 	}
 	if res["status"] != "updated" {
 		t.Fatalf("unexpected stdout status: %v", res)
+	}
+}
+
+func TestBuchungUpdateRejectsWrongFileFieldType(t *testing.T) {
+	server := buchungUpdateServer(t, nil)
+	defer server.Close()
+
+	filePath := filepath.Join(t.TempDir(), "update.json")
+	if err := os.WriteFile(filePath, []byte(`{
+		"internalDocumentNumber": 42,
+		"externalDocumentNumber": "EXT-325"
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	config := postingConfigPath(t, server.URL)
+	_, _ = withCLI(t, "", false)
+	err := run([]string{
+		"--config", config,
+		"buchung", "update", "DOC-325",
+		"--file=" + filePath,
+		"--yes",
+	})
+	if err == nil || !strings.Contains(err.Error(), "internalDocumentNumber") {
+		t.Fatalf("expected invalid internalDocumentNumber error, got %v", err)
 	}
 }
 

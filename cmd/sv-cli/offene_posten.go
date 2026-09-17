@@ -15,6 +15,7 @@ type offenePostenSeite struct {
 	name             string
 	endpoint         string
 	clearingEndpoint string
+	rebookEndpoint   string
 	accountKind      personalAccountKind
 	belegEndpoint    string
 }
@@ -24,6 +25,7 @@ var (
 		name:             "debitor",
 		endpoint:         "/openitems/debtors",
 		clearingEndpoint: "/openitems/debitor/clearing",
+		rebookEndpoint:   "/openitems/debitor/rebook",
 		accountKind:      debitorAccountKind,
 		belegEndpoint:    scopeskill.BelegEndpointOutgoingInvoice,
 	}
@@ -31,6 +33,7 @@ var (
 		name:             "kreditor",
 		endpoint:         "/openitems/creditors",
 		clearingEndpoint: "/openitems/creditor/clearing",
+		rebookEndpoint:   "/openitems/creditor/rebook",
 		accountKind:      kreditorAccountKind,
 		belegEndpoint:    scopeskill.BelegEndpointIncomingInvoice,
 	}
@@ -38,7 +41,7 @@ var (
 
 func offenePosten(client *scopeskill.Client, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintln(cliOutput, "offene-posten subcommands: list show clear")
+		fmt.Fprintln(cliOutput, "offene-posten subcommands: list show clear rebook set-reminder-level")
 		return errors.New("missing offene-posten subcommand")
 	}
 	switch args[0] {
@@ -48,6 +51,10 @@ func offenePosten(client *scopeskill.Client, args []string) error {
 		return offenePostenShow(client, args[1:])
 	case "clear":
 		return offenePostenClear(client, args[1:])
+	case "rebook":
+		return offenePostenRebook(client, args[1:])
+	case "set-reminder-level":
+		return offenePostenSetReminderLevel(client, args[1:])
 	default:
 		return fmt.Errorf("unknown offene-posten command: %s", args[0])
 	}

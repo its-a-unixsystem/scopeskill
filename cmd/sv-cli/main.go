@@ -737,7 +737,7 @@ commands:
   steuermatrix      list Steuermatrix entries
   eingangsrechnung  search, inspect, import, and repair Eingangsrechnungen
   gutschrift        search and inspect Gutschriften
-  offene-posten     search, inspect, and clear Offene Posten
+  offene-posten     search, inspect, clear, rebook, and set reminder levels
   journal           search the Journal (chronological postings)
   kasse             list Kassen and create Kassenbuchungen
   buchung           inspect and manage Buchungen and their attached Belege

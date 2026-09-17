@@ -14,13 +14,13 @@ import (
 	"github.com/its-a-unixsystem/scopeskill/internal/scopeskill"
 )
 
-const offenePostenClearUsage = `usage: sv-cli offene-posten clear --seite=kreditor --data @clearing.json [--dry-run] [--allow-partial] [--yes]
+const offenePostenClearUsage = `usage: sv-cli offene-posten clear --seite=debitor|kreditor --data @clearing.json [--dry-run] [--allow-partial] [--yes]
 
 Input schema (--data JSON or @file):
   paymentDocumentNumber     required payment Belegnummer
   paymentOpenAmount         optional expected before-state; requires every item openAmount
-  items                     required; at least one selected creditor open item
-  items[].documentNumber    required creditor open-item Belegnummer
+  items                     required; at least one selected open item
+  items[].documentNumber    required open-item Belegnummer
   items[].openAmount        optional expected before-state; requires paymentOpenAmount
   items[].clearingAmount    required positive EUR amount with at most two decimals
 
@@ -29,8 +29,8 @@ Safety:
   --allow-partial permit an item clearingAmount below its current open amount
   --yes           bypass the interactive "clear <paymentDocumentNumber>" confirmation
 
-The command requires --seite=kreditor, sends at most one clearing request, never
-retries a write, and verifies every affected balance before reporting success.`
+The command requires --seite=debitor|kreditor, sends at most one clearing request,
+never retries a write, and verifies every affected balance before reporting success.`
 
 type centAmount int64
 
@@ -196,7 +196,7 @@ func (input creditorClearingInput) providerRequest() openItemsClearingRequest {
 func offenePostenClear(client *scopeskill.Client, args []string) error {
 	flags := flag.NewFlagSet("offene-posten clear", flag.ContinueOnError)
 	flags.SetOutput(cliError)
-	seite := flags.String("seite", "", "required OP side: kreditor")
+	seiteFlag := flags.String("seite", "", "required OP side: debitor or kreditor")
 	data := flags.String("data", "", "clearing JSON, or @path/to/file.json")
 	dryRun := flags.Bool("dry-run", false, "preflight and preview only; no write")
 	allowPartial := flags.Bool("allow-partial", false, "allow partial clearing of selected items")
@@ -209,8 +209,9 @@ func offenePostenClear(client *scopeskill.Client, args []string) error {
 		flags.Usage()
 		return errors.New("offene-posten clear requires --data and takes no positional arguments")
 	}
-	if *seite != "kreditor" {
-		return errors.New("offene-posten clear requires --seite=kreditor")
+	seite, err := parseOffenePostenSeite(*seiteFlag)
+	if err != nil {
+		return err
 	}
 	raw, err := loadRaw(*data)
 	if err != nil {
@@ -221,11 +222,11 @@ func offenePostenClear(client *scopeskill.Client, args []string) error {
 		return err
 	}
 
-	documents, err := fetchCreditorClearingDocuments(client, input)
+	documents, err := fetchClearingDocuments(client, seite, input)
 	if err != nil {
 		return err
 	}
-	before, disposition, err := preflightCreditorClearing(client, input, documents, *allowPartial)
+	before, disposition, err := preflightClearing(client, seite, input, documents, *allowPartial)
 	if err != nil {
 		return err
 	}
@@ -237,7 +238,7 @@ func offenePostenClear(client *scopeskill.Client, args []string) error {
 	req := writeRequest{
 		Command:       "offene-posten clear",
 		Method:        http.MethodPost,
-		Path:          offenePostenKreditor.clearingEndpoint,
+		Path:          seite.clearingEndpoint,
 		Payload:       requestBody,
 		ConfirmPhrase: "clear " + input.PaymentDocumentNumber,
 		Preview: map[string]any{
@@ -268,7 +269,7 @@ func offenePostenClear(client *scopeskill.Client, args []string) error {
 		return err
 	}
 
-	liveBefore, err := readCreditorClearingSnapshot(client, input, documents)
+	liveBefore, err := readClearingSnapshot(client, seite, input, documents)
 	if err != nil {
 		return err
 	}
@@ -280,15 +281,15 @@ func offenePostenClear(client *scopeskill.Client, args []string) error {
 	if outcome == writeRejected {
 		return writeErr
 	}
-	lastObserved, observeErr := readCreditorClearingSnapshot(client, input, documents)
+	lastObserved, observeErr := readClearingSnapshot(client, seite, input, documents)
 	if outcome == writeAmbiguous {
-		return creditorClearingVerificationRequired(input, before, lastObserved, result, writeErr, observeErr)
+		return clearingVerificationRequired(input, before, lastObserved, result, writeErr, observeErr)
 	}
 	if observeErr != nil {
-		return creditorClearingVerificationRequired(input, before, lastObserved, result, nil, observeErr)
+		return clearingVerificationRequired(input, before, lastObserved, result, nil, observeErr)
 	}
 	if !matchesPredictedClearing(before, lastObserved) {
-		return creditorClearingVerificationRequired(input, before, lastObserved, result, nil, errors.New("post-write balances do not match the requested allocation"))
+		return clearingVerificationRequired(input, before, lastObserved, result, nil, errors.New("post-write balances do not match the requested allocation"))
 	}
 	baseOutput["status"] = "cleared"
 	baseOutput["response"] = result
@@ -304,7 +305,7 @@ const (
 	clearingAlreadyApplied
 )
 
-func fetchCreditorClearingDocuments(client *scopeskill.Client, input creditorClearingInput) (map[string]creditorClearingDocument, error) {
+func fetchClearingDocuments(client *scopeskill.Client, seite offenePostenSeite, input creditorClearingInput) (map[string]creditorClearingDocument, error) {
 	numbers := clearingDocumentNumbers(input)
 	netsByDocument := make(map[string]map[string]centAmount, len(numbers))
 	currencyByDocument := make(map[string]map[string]string, len(numbers))
@@ -343,27 +344,31 @@ func fetchCreditorClearingDocuments(client *scopeskill.Client, input creditorCle
 			common = append(common, account)
 		}
 	}
-	var creditorAccounts []string
+	var personalAccounts []string
 	for _, candidate := range common {
-		account, err := fetchPersonalAccountByNumber(client, kreditorAccountKind, candidate)
+		account, err := fetchPersonalAccountByNumber(client, seite.accountKind, candidate)
 		if err != nil {
 			return nil, err
 		}
 		if account != nil {
-			creditorAccounts = append(creditorAccounts, candidate)
+			personalAccounts = append(personalAccounts, candidate)
 		}
 	}
-	if len(creditorAccounts) != 1 {
-		return nil, errors.New("payment and selected items must belong to the same Kreditor account")
+	accountLabel := "Kreditor"
+	if seite.name == "debitor" {
+		accountLabel = "Debitor"
 	}
-	account := creditorAccounts[0]
+	if len(personalAccounts) != 1 {
+		return nil, fmt.Errorf("payment and selected items must belong to the same %s account", accountLabel)
+	}
+	account := personalAccounts[0]
 	documents := make(map[string]creditorClearingDocument, len(numbers))
 	paymentDirection := signOf(netsByDocument[numbers[0]][account])
 	// Inlandsbuchungen führen keine Währung auf der Zeile; das ist EUR. Eine
 	// ausgewiesene Fremdwährung bleibt dagegen vom Ausgleich ausgeschlossen.
 	currency := clearingCurrency(currencyByDocument[numbers[0]][account])
 	if currency != "EUR" {
-		return nil, fmt.Errorf("payment currency %s is not supported; creditor clearing requires EUR", currency)
+		return nil, fmt.Errorf("payment currency %s is not supported; %s clearing requires EUR", currency, seite.name)
 	}
 	for i, number := range numbers {
 		net := netsByDocument[number][account]
@@ -372,7 +377,7 @@ func fetchCreditorClearingDocuments(client *scopeskill.Client, input creditorCle
 			return nil, fmt.Errorf("document %s currency %s does not match payment currency %s", number, documentCurrency, currency)
 		}
 		if i > 0 && signOf(net) == paymentDirection {
-			return nil, fmt.Errorf("selected item %s is not opposite the payment on Kreditor account %s", number, account)
+			return nil, fmt.Errorf("selected item %s is not opposite the payment on %s account %s", number, accountLabel, account)
 		}
 		documents[number] = creditorClearingDocument{
 			DocumentNumber: number,
@@ -388,9 +393,9 @@ func journalAccountNets(records []any) (map[string]centAmount, map[string]string
 	currencies := map[string]string{}
 	for _, value := range records {
 		record, _ := value.(map[string]any)
-		// Auf der Sammelkontozeile trägt Scopevisio das Kreditorenkonto unter
-		// personalAccountNumber, accountNumber zeigt die 3300; der Ausgleich
-		// läuft über das Personenkonto (scopeskill #58).
+		// Auf der Sammelkontozeile trägt Scopevisio das Personenkonto unter
+		// personalAccountNumber; accountNumber zeigt das Sammelkonto. Der
+		// Ausgleich läuft über das Personenkonto (scopeskill #58).
 		account := firstNonEmptyString(record, "personalAccountNumber", "accountNumber")
 		if account == "" {
 			continue
@@ -412,8 +417,8 @@ func journalAccountNets(records []any) (map[string]centAmount, map[string]string
 	return nets, currencies, nil
 }
 
-func preflightCreditorClearing(client *scopeskill.Client, input creditorClearingInput, documents map[string]creditorClearingDocument, allowPartial bool) (creditorClearingSnapshot, clearingDisposition, error) {
-	snapshot, err := readCreditorClearingSnapshot(client, input, documents)
+func preflightClearing(client *scopeskill.Client, seite offenePostenSeite, input creditorClearingInput, documents map[string]creditorClearingDocument, allowPartial bool) (creditorClearingSnapshot, clearingDisposition, error) {
+	snapshot, err := readClearingSnapshot(client, seite, input, documents)
 	if err != nil {
 		return creditorClearingSnapshot{}, clearingReady, err
 	}
@@ -450,12 +455,12 @@ func preflightCreditorClearing(client *scopeskill.Client, input creditorClearing
 	return snapshot, clearingReady, nil
 }
 
-func readCreditorClearingSnapshot(client *scopeskill.Client, input creditorClearingInput, documents map[string]creditorClearingDocument) (creditorClearingSnapshot, error) {
+func readClearingSnapshot(client *scopeskill.Client, seite offenePostenSeite, input creditorClearingInput, documents map[string]creditorClearingDocument) (creditorClearingSnapshot, error) {
 	total := centAmount(0)
 	for _, item := range input.Items {
 		total += item.ClearingAmount
 	}
-	paymentOpen, err := fetchCreditorOpenAmount(client, documents[input.PaymentDocumentNumber])
+	paymentOpen, err := fetchClearingOpenAmount(client, seite, documents[input.PaymentDocumentNumber])
 	if err != nil {
 		return creditorClearingSnapshot{}, err
 	}
@@ -474,7 +479,7 @@ func readCreditorClearingSnapshot(client *scopeskill.Client, input creditorClear
 	}
 	for _, item := range input.Items {
 		document := documents[item.DocumentNumber]
-		open, err := fetchCreditorOpenAmount(client, document)
+		open, err := fetchClearingOpenAmount(client, seite, document)
 		if err != nil {
 			return creditorClearingSnapshot{}, err
 		}
@@ -492,16 +497,16 @@ func readCreditorClearingSnapshot(client *scopeskill.Client, input creditorClear
 	return snapshot, nil
 }
 
-func fetchCreditorOpenAmount(client *scopeskill.Client, document creditorClearingDocument) (centAmount, error) {
+func fetchClearingOpenAmount(client *scopeskill.Client, seite offenePostenSeite, document creditorClearingDocument) (centAmount, error) {
 	// Offene Posten lassen sich nur über das Konto suchen: postingNumber ist
 	// kein durchsuchbares Feld (die API antwortet mit HTTP 500), und die
 	// Belegnummer steht dort, nicht unter invoiceNumber. Deshalb alle offenen
-	// Posten des Kreditors holen und über die Belegnummer filtern (scopeskill
-	// #58). Ist keiner mehr offen, ist der Posten ausgeglichen.
+	// Posten des Personenkontos holen und über die Belegnummer filtern
+	// (scopeskill #58). Ist keiner mehr offen, ist der Posten ausgeglichen.
 	base := scopeskill.SearchRequest{
 		Conditions: []scopeskill.SearchCondition{{Field: "accountNumber", Operator: scopeskill.OpEquals, Value: document.AccountNumber}},
 	}
-	records, err := paginateOpenItems(client, offenePostenKreditor.endpoint, base, true, 0, 0)
+	records, err := paginateOpenItems(client, seite.endpoint, base, true, 0, 0)
 	if err != nil {
 		return 0, err
 	}
@@ -512,7 +517,7 @@ func fetchCreditorOpenAmount(client *scopeskill.Client, document creditorClearin
 			continue
 		}
 		if match != nil {
-			return 0, fmt.Errorf("document %s matched multiple creditor open items", document.DocumentNumber)
+			return 0, fmt.Errorf("document %s matched multiple %s open items", document.DocumentNumber, seite.name)
 		}
 		match = record
 	}
@@ -638,7 +643,7 @@ func verifiedBalances(before, observed []creditorClearingBalance) []creditorClea
 	return verified
 }
 
-func creditorClearingVerificationRequired(input creditorClearingInput, before, observed creditorClearingSnapshot, result any, writeErr, observeErr error) error {
+func clearingVerificationRequired(input creditorClearingInput, before, observed creditorClearingSnapshot, result any, writeErr, observeErr error) error {
 	output := map[string]any{
 		"status":                "verification_required",
 		"paymentDocumentNumber": input.PaymentDocumentNumber,

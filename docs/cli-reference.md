@@ -360,10 +360,10 @@ Search chronological postings (Buchungen).
 
 ### `reisekosten`
 
-List travel entries and create expense positions.
+List Reisekosten and create expense positions.
 
 - `sv-cli reisekosten list [--all] [--max=N] [--page-size=N] [--data @search.json]`
-  List travel entries via `POST /travelentries`. Use `--data` to supply the complete provider search body.
+  List Reisekosten via `POST /travelentries`. Use `--data` to supply the complete provider search body.
 - `sv-cli reisekosten nebenkosten create --file=position.json [--dry-run] [--yes]`
   Create an incidental expense via `POST /travelentry/position/extra/new`.
 - `sv-cli reisekosten uebernachtung create --file=position.json [--dry-run] [--yes]`

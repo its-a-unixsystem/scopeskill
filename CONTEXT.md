@@ -140,6 +140,14 @@ _Avoid_: Accounting period, booking month
 A single posting in the **Journal**: at minimum a Soll/Haben pair on Konten with an amount and a Buchungsdatum, plus optional Steuerschlüssel and Dimensionen.
 _Avoid_: Posting line, journal entry
 
+**Kasse**:
+A Scopevisio cash ledger identified by its Ref-Nummer (`cashbookId`).
+_Avoid_: Cashbook
+
+**Kassenbuchung**:
+An Einnahme or Ausgabe recorded in a **Kasse** with a Belegdatum and Gegenkonto.
+_Avoid_: Cashbook entry
+
 **Journal**:
 The chronological sequence of general, impersonal ledger postings for a Fiskaljahr, queried through `sv-cli journal search` (`/journal`); postings touching customer or supplier accounts appear here only via aggregate **Sammelkonto** rows.
 _Avoid_: Ledger, Sachjournal, general ledger
@@ -268,6 +276,7 @@ _Avoid_: Travel entries
 - A **Fiskaljahr** partitions the ledger into chronological **Buchungsperioden**; postings or settlements targeting closed periods or closed **Fiskaljahre** are rejected by the provider. `sv-cli buchhaltung fiscalyears` delivers the raw periods structure unchanged without deriving the active period.
 - An **Eingangsrechnung** enters Scopevisio via PDF ingestion (`sv-cli eingangsrechnung import`) into the incoming invoice inbox (*Rechnungseingangsbuch*) without business metadata (`contentStateId=0`, `postingStateId=0`); metadata enrichment (`sv-cli eingangsrechnung update`) is performed as a separate, subsequent step.
 - An existing **Buchung** is immutable regarding accounts, amounts, tax keys, and posting dates under GoBD; only `internalDocumentNumber` and `externalDocumentNumber` may be modified in place via `sv-cli buchung update`.
+- `sv-cli kasse list` queries available **Kassen** through `/cashbooksheets`; `sv-cli kasse create` creates one **Kassenbuchung** through `/cashbookentry/new` and never sends the provider-managed internal Belegnummer.
 
 ## Example dialogue
 

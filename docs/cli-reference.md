@@ -358,6 +358,19 @@ Search chronological postings (Buchungen).
   separately approved and confirmed commands; they are never chained
   automatically.
 
+### `kasse`
+
+List Kassen and create Kassenbuchungen.
+
+- `sv-cli kasse list [--all] [--max=N] [--page-size=N] [--data @search.json]`
+  List available Kassen via `POST /cashbooksheets` to discover their `cashbookId`.
+- `sv-cli kasse create --data JSON|@entry.json [--dry-run] [--yes]`
+  Create one Kassenbuchung via `POST /cashbookentry/new`. The provider JSON object
+  requires `cashbookId` and `documentDate` as integers; `documentDate` is an epoch
+  timestamp in milliseconds. `internalDocumentNumber` is provider-managed and is
+  rejected when present. The command preserves the supplied JSON, previews it,
+  requires confirmation unless `--yes` is set, and sends the write exactly once.
+
 ### `reisekosten`
 
 List Reisekosten and create expense positions.

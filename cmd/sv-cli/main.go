@@ -174,6 +174,12 @@ func run(args []string) error {
 			return err
 		}
 		return journal(client, commandArgs[1:])
+	case "kasse":
+		client, err := newClient(configPath)
+		if err != nil {
+			return err
+		}
+		return kasse(client, commandArgs[1:])
 	case "reisekosten":
 		client, err := newClient(configPath)
 		if err != nil {
@@ -733,6 +739,7 @@ commands:
   gutschrift        search and inspect Gutschriften
   offene-posten     search, inspect, and clear Offene Posten
   journal           search the Journal (chronological postings)
+  kasse             list Kassen and create Kassenbuchungen
   buchung           inspect and manage Buchungen and their attached Belege
   reisekosten       list Reisekosten and create Nebenkosten, Übernachtung, Fahrtkosten positions`)
 	return nil

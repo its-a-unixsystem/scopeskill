@@ -171,6 +171,8 @@ Inspect basic accounting configuration.
   Fetch account mapping.
 - `sv-cli buchhaltung gewinn-und-verlust [--balance-date=DD.MM.YYYY]`
   Fetch gain and loss adjustment accounts.
+- `sv-cli buchhaltung fiscalyears`
+  Fetch fiscal year and posting period information from `GET /fiscalyears` (`fiskaljahr` is accepted as an alias).
 
 ### `dimension` / `textbaustein`
 
@@ -227,6 +229,8 @@ Search, inspect, and repair vendor-side Belege with stitched Kontakt data.
   Download the main Local file for an Eingangsrechnung from `/incominginvoice/{idOrNumber}/file`. Without `--out`, use the response filename. The identifier accepts only the internal number or ID, not the external vendor invoice number.
 - `sv-cli eingangsrechnung link <idOrNumber>`
   Print the Teamwork web link returned by `/incominginvoice/{idOrNumber}/teamworkFileLink`. The identifier accepts only the internal number or ID, not the external vendor invoice number.
+- `sv-cli eingangsrechnung import --file=invoice.pdf [--dry-run] [--yes]`
+  Import a vendor invoice PDF document into Scopevisio via `POST /incominginvoice/new`. Validates file size (max 20 MB) and sends base64-encoded bytes. Previews the request payload on stderr and requires `--yes` or the interactive phrase `import eingangsrechnung <filename>`. `--dry-run` performs no write.
 - `sv-cli eingangsrechnung update <idOrNumber> [flags] [--dry-run] [--yes]`
   Repair an unverified Eingangsrechnung via `POST /incominginvoice/{id}`.
   Flags: `--vendor-contact-id=N`, `--document-number=VALUE`,
@@ -340,6 +344,12 @@ Search chronological postings (Buchungen).
   Download the attached Beleg via `GET /journal/<documentNumber>/file`.
   Without `--out`, the response filename is used. `--with-stamp` instead uses
   `GET /journal/<documentNumber>/filewithstamp`.
+- `sv-cli buchung update <documentNumber> [--internal-number=STR] [--external-number=STR] [--file=changes.json] [--dry-run] [--yes]`
+  Update internal and/or external document numbers for an existing posting via
+  `PUT /postings/update`. At least one modification flag or file property is
+  required. The command previews the canonical payload on stderr, requires
+  `--yes` or the interactive confirmation phrase `update buchung <documentNumber>`,
+  and reads the updated Buchung back from the Journal.
 - `sv-cli buchung replace <documentNumber> --data @replacement.json [--dry-run] [--yes]`
   Intentionally unavailable: the atomic semantics of `POST
   /postings/correction` have not passed the mandatory controlled live contract

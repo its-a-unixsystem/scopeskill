@@ -57,7 +57,7 @@ func beleg(client *scopeskill.Client, kind belegKind, args []string) error {
 	if len(args) == 0 {
 		subcommands := "search show"
 		if kind.command == eingangsrechnungKind.command {
-			subcommands = "search show file link update"
+			subcommands = "search show file link update import"
 		}
 		fmt.Fprintf(cliOutput, "%s subcommands: %s\n", kind.command, subcommands)
 		return fmt.Errorf("missing %s subcommand", kind.command)
@@ -82,6 +82,11 @@ func beleg(client *scopeskill.Client, kind belegKind, args []string) error {
 			return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
 		}
 		return eingangsrechnungUpdate(client, args[1:])
+	case "import":
+		if kind.command != eingangsrechnungKind.command {
+			return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
+		}
+		return eingangsrechnungImport(client, args[1:])
 	default:
 		return fmt.Errorf("unknown %s command: %s", kind.command, args[0])
 	}

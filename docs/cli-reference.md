@@ -348,6 +348,24 @@ Search chronological postings (Buchungen).
   separately approved and confirmed commands; they are never chained
   automatically.
 
+### `reisekosten`
+
+List travel entries and create expense positions.
+
+- `sv-cli reisekosten list [--all] [--max=N] [--page-size=N] [--data @search.json]`
+  List travel entries via `POST /travelentries`. Use `--data` to supply the complete provider search body.
+- `sv-cli reisekosten nebenkosten create --file=position.json [--dry-run] [--yes]`
+  Create an incidental expense via `POST /travelentry/position/extra/new`.
+- `sv-cli reisekosten uebernachtung create --file=position.json [--dry-run] [--yes]`
+  Create an overnight expense via `POST /travelentry/position/overnight/new`.
+- `sv-cli reisekosten fahrtkosten create --file=position.json [--dry-run] [--yes]`
+  Create a vehicle expense via `POST /travelentry/position/vehicle/new`.
+
+The position file is a provider JSON object that contains `travelEntryId` and `fileform`.
+The command sends the object without adding fields or attachments.
+Use `--dry-run` to print the request without API calls.
+Without `--yes`, type the confirmation phrase in an interactive terminal.
+
 ## Common CLI Patterns
 
 ### Search Pagination

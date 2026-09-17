@@ -23,7 +23,7 @@ func newBuchhaltungStub(t *testing.T) *buchhaltungStub {
 				"access_token": "access-from-refresh",
 				"expires_in":   3600,
 			})
-		case "/rest/accountinginfo", "/rest/accountmapping", "/rest/gainandlossadjustmentaccounts":
+		case "/rest/accountinginfo", "/rest/accountmapping", "/rest/gainandlossadjustmentaccounts", "/rest/fiscalyears":
 			stub.hits = append(stub.hits, r.Method+" "+r.URL.RequestURI())
 			writeJSONForCLI(w, map[string]any{"endpoint": r.URL.Path})
 		default:
@@ -45,6 +45,8 @@ func TestBuchhaltungCommandsFetchExpectedEndpoints(t *testing.T) {
 		{"mapping", []string{"buchhaltung", "mapping"}, "GET /rest/accountmapping"},
 		{"gewinn und verlust", []string{"buchhaltung", "gewinn-und-verlust"}, "GET /rest/gainandlossadjustmentaccounts"},
 		{"gewinn und verlust with date", []string{"buchhaltung", "gewinn-und-verlust", "--balance-date=31.12.2025"}, "GET /rest/gainandlossadjustmentaccounts?balanceDate=31.12.2025"},
+		{"fiscalyears", []string{"buchhaltung", "fiscalyears"}, "GET /rest/fiscalyears"},
+		{"fiskaljahr", []string{"buchhaltung", "fiskaljahr"}, "GET /rest/fiscalyears"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

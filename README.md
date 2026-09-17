@@ -18,6 +18,8 @@ The Swagger UI is backed by:
 - `references/auth.md`: token and login workflow.
 - `references/bookkeeping.md`: Scopevisio bookkeeping object map and API guardrails.
 - `references/teamworkbridge.md`: Teamwork/CenterDevice access, upload, and download workflow.
+- `references/workflows/`: step-by-step SOPs (incoming invoices, account movements, reconciliations, etc.).
+- `references/workflows/cleanup-checklist.md`: preflight and postcondition checklist for cleanup and reconciliation.
 - `cmd/sv-cli/`: small Go helper CLI. Build it as `sv-cli`.
 - `internal/scopeskill/`: helper client and config package used by `sv-cli`.
 

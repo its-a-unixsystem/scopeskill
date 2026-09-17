@@ -239,6 +239,17 @@ If built-in flags are insufficient, use the raw JSON search escape hatch:
 sv-cli kontakt search --data @complex-search.json
 ```
 
+## Workflows & Standard Operating Procedures
+
+For detailed, step-by-step instructions on specific accounting workflows, refer to the documented SOPs:
+
+- **Incoming Invoices**: [`references/workflows/new-invoice.md`](references/workflows/new-invoice.md) — Ingesting, verifying, repairing, and posting incoming vendor invoices (`Eingangsrechnungen`).
+- **Account Movement**: [`references/workflows/new-account-movement.md`](references/workflows/new-account-movement.md) — Recording bank movements and manual journal postings.
+- **Check Bookings**: [`references/workflows/check-bookings.md`](references/workflows/check-bookings.md) — Auditing ledger entries, Personenjournal, and open items.
+- **Find / Show Booking**: [`references/workflows/find-booking.md`](references/workflows/find-booking.md) — Searching for specific transactions, vouchers, and attachments.
+- **Reconcile Statements**: [`references/workflows/reconcile-statements.md`](references/workflows/reconcile-statements.md) — Reconciling bank statements with open items and ledger accounts.
+- **Cleanup Checklist**: [`references/workflows/cleanup-checklist.md`](references/workflows/cleanup-checklist.md) — Shared preflight, matching, write-safety, failure-recovery, and reconciliation checks.
+
 ## Domain Language Rules
 Always adhere to the terminology in `docs/agents/domain.md`. For example:
 - Use **Unternehmen** (not Mandant).

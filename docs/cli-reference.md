@@ -289,7 +289,13 @@ Search chronological postings (Buchungen).
   Filters: `--from`, `--to`, `--konto` (Sachkonto only), `--text`, `--belegnr`,
   `--amount-min`, `--amount-max`, `--dim=KEY=VALUE`.
 - `sv-cli buchung show <documentNumber>`
-  Show a specific booking by its documentNumber.
+  Show a specific Buchung by its `documentNumber`, including its Beleg and
+  verified `lifecycle`. Active Buchungen report `lifecycle.state=active`.
+  Cancelled Buchungen report `cancelled`, `cancellationDocumentNumber`, and the
+  verified sign-reversed Storno rows under `lifecycle.cancellation`; linked
+  replacements also report `replacementDocumentNumber`. Malformed, ambiguous,
+  or unverifiable linkage reports `conflict` and exits non-zero. This inspection
+  is read-only.
 - `sv-cli buchung create --data @buchung.json [--dry-run] [--yes]`
   Create one reviewed Buchung via `POST /postings/new`. The input carries shared
   document fields plus at least two rows:

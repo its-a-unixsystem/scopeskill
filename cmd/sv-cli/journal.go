@@ -348,10 +348,48 @@ func buchungShow(client *scopeskill.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	return printJSON(map[string]any{
-		"buchung": buchung,
-		"beleg":   beleg,
-	})
+	out := map[string]any{"buchung": buchung, "beleg": beleg}
+	conflict := func(reason string, related []string) error {
+		lifecycle := map[string]any{"state": "conflict", "reason": reason}
+		if len(related) > 0 {
+			lifecycle["relatedDocumentNumbers"] = related
+		}
+		out["lifecycle"] = lifecycle
+		_ = printJSON(out)
+		return errors.New(reason)
+	}
+	original, err := scopeskill.CanonicalFromJournal(lines)
+	if err != nil {
+		return conflict(fmt.Sprintf("journal records are inconsistent: %v", err), nil)
+	}
+	if original.DocumentNumber != documentNumber {
+		return conflict(fmt.Sprintf("journal returned documentNumber %q instead of %q", original.DocumentNumber, documentNumber), nil)
+	}
+	pdeRowNumber, pdeErr := sharedJournalNumber(lines, "pdeRowNumber")
+	if pdeErr != nil {
+		return conflict(fmt.Sprintf("journal records carry no consistent pdeRowNumber: %v", pdeErr), nil)
+	}
+	state, discoveryErr := discoverCancellations(client, original, pdeRowNumber)
+	if discoveryErr != nil {
+		return conflict(fmt.Sprintf("cannot verify cancellation linkage: %v", discoveryErr), state.linkedNumbers)
+	}
+	if state.stornoNumber == "" && len(state.linkedNumbers) > 0 {
+		return conflict("journal links exist but none is a verified sign-reversed Storno", state.linkedNumbers)
+	}
+	if state.stornoNumber == "" {
+		out["lifecycle"] = map[string]any{"state": "active"}
+		return printJSON(out)
+	}
+	lifecycle := map[string]any{
+		"state":                      "cancelled",
+		"cancellationDocumentNumber": state.stornoNumber,
+		"cancellation":               map[string]any{"documentNumber": state.stornoNumber, "rows": state.stornoRecords},
+	}
+	if state.replacementNumber != "" {
+		lifecycle["replacementDocumentNumber"] = state.replacementNumber
+	}
+	out["lifecycle"] = lifecycle
+	return printJSON(out)
 }
 
 func dimensionsFromJournalLines(lines []any) map[string]any {

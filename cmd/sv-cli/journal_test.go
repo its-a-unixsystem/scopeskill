@@ -20,8 +20,9 @@ type journalStub struct {
 func newJournalStub(t *testing.T) *journalStub {
 	t.Helper()
 	stub := &journalStub{
-		journalByID: map[string][]any{},
-		belegByPath: map[string]map[string]any{},
+		journalRecords: []any{},
+		journalByID:    map[string][]any{},
+		belegByPath:    map[string]map[string]any{},
 	}
 	stub.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -154,6 +155,7 @@ func TestBuchungShowStitchesLinesDimensionsAndBeleg(t *testing.T) {
 			"creditAmount":           0.0,
 			"vatKey":                 "V19",
 			"documentDimension_1":    111.0,
+			"pdeRowNumber":           "9001",
 		},
 		map[string]any{
 			"documentNumber":         "2025-000001",
@@ -161,6 +163,7 @@ func TestBuchungShowStitchesLinesDimensionsAndBeleg(t *testing.T) {
 			"accountNumber":          "3300",
 			"debitAmount":            0.0,
 			"creditAmount":           2.32,
+			"pdeRowNumber":           "9001",
 		},
 	}
 	stub.belegByPath["/rest/incominginvoice/2025-4"] = map[string]any{"number": "2025-4", "postingDocumentNumber": "2025-000001"}
@@ -188,6 +191,78 @@ func TestBuchungShowStitchesLinesDimensionsAndBeleg(t *testing.T) {
 	}
 	if got["beleg"].(map[string]any)["postingDocumentNumber"] != "2025-000001" {
 		t.Fatalf("beleg = %#v", got["beleg"])
+	}
+	lifecycle := got["lifecycle"].(map[string]any)
+	if lifecycle["state"] != "active" {
+		t.Fatalf("lifecycle = %#v", lifecycle)
+	}
+}
+
+func TestBuchungShowReportsCancelledStateAndReplacement(t *testing.T) {
+	stub := newJournalStub(t)
+	stub.journalByID["P-2025-1"] = cancelOriginalRows()
+	stub.journalByID["S-2025-1"] = cancelStornoRows()
+	replacement := cancelOriginalRows()
+	for _, item := range replacement {
+		record := item.(map[string]any)
+		record["documentNumber"] = "R-2025-1"
+		record["cancellationNumber"] = "9001"
+	}
+	stub.journalByID["R-2025-1"] = replacement
+	stub.journalRecords = []any{
+		map[string]any{"documentNumber": "S-2025-1", "cancellationNumber": "9001"},
+		map[string]any{"documentNumber": "R-2025-1", "cancellationNumber": "9001"},
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "buchung", "show", "P-2025-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v: %s", err, output.String())
+	}
+	lifecycle := got["lifecycle"].(map[string]any)
+	if lifecycle["state"] != "cancelled" || lifecycle["cancellationDocumentNumber"] != "S-2025-1" || lifecycle["replacementDocumentNumber"] != "R-2025-1" {
+		t.Fatalf("lifecycle = %#v", lifecycle)
+	}
+	cancellation := lifecycle["cancellation"].(map[string]any)
+	if cancellation["documentNumber"] != "S-2025-1" || len(cancellation["rows"].([]any)) != 2 {
+		t.Fatalf("cancellation = %#v", cancellation)
+	}
+	if got["buchung"] == nil {
+		t.Fatal("buchung output is missing")
+	}
+}
+
+func TestBuchungShowRejectsUnverifiedCancellationLinkage(t *testing.T) {
+	stub := newJournalStub(t)
+	stub.journalByID["P-2025-1"] = cancelOriginalRows()
+	linked := cancelOriginalRows()
+	for _, item := range linked {
+		record := item.(map[string]any)
+		record["documentNumber"] = "X-2025-1"
+		record["cancellationNumber"] = "9001"
+	}
+	stub.journalByID["X-2025-1"] = linked
+	stub.journalRecords = []any{map[string]any{"documentNumber": "X-2025-1", "cancellationNumber": "9001"}}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	err := run([]string{"--config", configPath, "buchung", "show", "P-2025-1"})
+	if err == nil || !strings.Contains(err.Error(), "none is a verified sign-reversed Storno") {
+		t.Fatalf("error = %v", err)
+	}
+
+	var got map[string]any
+	if jsonErr := json.Unmarshal(output.Bytes(), &got); jsonErr != nil {
+		t.Fatalf("stdout JSON: %v: %s", jsonErr, output.String())
+	}
+	lifecycle := got["lifecycle"].(map[string]any)
+	if lifecycle["state"] != "conflict" || got["buchung"] == nil {
+		t.Fatalf("conflict output = %#v", got)
 	}
 }
 

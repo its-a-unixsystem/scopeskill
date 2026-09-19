@@ -51,6 +51,7 @@ Follow this escalation pattern when interacting with Scopevisio:
 | Find open invoices/vouchers             | `offene-posten list --seite=...`         | Looking for unsettled items on either the debitor or kreditor side  |
 | Clear reviewed creditor open items      | `offene-posten clear --seite=kreditor --data @f --dry-run`, then `--yes` | Only from an approved payment-to-Beleg mapping |
 | Search chronological postings           | `journal search`                         | You need to see the ledger entries (Buchungen)                      |
+| Inspect one Buchung and its lifecycle    | `buchung show <nr>`                      | You need its active/cancelled state, verified Storno, or replacement |
 | Search Personenjournal postings         | `personenkonto journal`                  | You need to see postings for a Debitor or Kreditor in the Personenjournal |
 | Create one reviewed Buchung             | `buchung create --data @f --dry-run`, then `--yes`  | Only from an approved Buchungssatz; never invent accounts/tax keys   |
 | Cancel one reviewed Buchung             | `buchung cancel <nr> --dry-run`, then `--yes`       | Only after the user approved cancelling this exact documentNumber     |
@@ -140,9 +141,11 @@ sv-cli journal search --konto=4400 --amount-min=100.00 --all
 > each item's remaining amount. `journal search` alone is not the complete
 > Buchung.
 
-Cancelling a Buchung is a write operation: always run `buchung cancel <nr>
---dry-run` first, show the preview to the user, and only re-run with `--yes`
-after explicit approval. `buchung replace` is gated and refuses to write: the
+Inspect cancellation state with read-only `buchung show <nr>`; it reports the
+verified Storno and replacement when present. Cancelling a Buchung is a write
+operation: run `buchung cancel <nr> --dry-run` only when a cancellation is
+intended, show the preview to the user, and only re-run with `--yes` after
+explicit approval. `buchung replace` is gated and refuses to write: the
 atomic semantics of `POST /postings/correction` have not passed the required
 controlled live contract test. Never call `/postings/correction` (or any raw
 endpoint) to cancel or correct a Buchung, and never improvise a replacement by

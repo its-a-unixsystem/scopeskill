@@ -358,13 +358,19 @@ Search chronological postings (Buchungen).
   required. The command previews the canonical payload on stderr, requires
   `--yes` or the interactive confirmation phrase `update buchung <documentNumber>`,
   and reads the updated Buchung back from the Journal.
+- `sv-cli buchung correct <documentNumber> --file=correction.json [--dry-run] [--yes]`
+  and `sv-cli buchung correct-import --file=corrections.json [--dry-run] [--yes]`
+  are recognized but intentionally unavailable. Their request
+  contracts and correction semantics have not passed a controlled live contract
+  test, so they exit with `conflict` before reading a payload or touching the
+  API.
 - `sv-cli buchung replace <documentNumber> --data @replacement.json [--dry-run] [--yes]`
   Intentionally unavailable: the atomic semantics of `POST
   /postings/correction` have not passed the mandatory controlled live contract
-  test, so the command exits with a conflict without touching the API. The
-  safe fallback is a `buchung cancel` and a `buchung create` issued as two
-  separately approved and confirmed commands; they are never chained
-  automatically.
+  test, so the command exits with a conflict without touching the API. The safe
+  fallback for all three unavailable commands is a `buchung cancel` and a
+  `buchung create` issued as two separately approved and confirmed commands;
+  they are never chained automatically.
 
 ### `kasse`
 

@@ -149,6 +149,9 @@ operation: run `buchung cancel <nr> --dry-run` only when a cancellation is
 intended, show the preview to the user, and only re-run with `--yes` after
 explicit approval. `buchung replace` is gated and refuses to write: the
 atomic semantics of `POST /postings/correction` have not passed the required
+controlled live contract test. The recognized `buchung correct` and `buchung
+correct-import` commands also return `conflict` before reading their payloads or
+touching the API until their request contracts and correction semantics pass a
 controlled live contract test. Never call `/postings/correction` (or any raw
 endpoint) to cancel or correct a Buchung, and never improvise a replacement by
 chaining `buchung cancel` and `buchung create` automatically — issue each

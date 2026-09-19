@@ -16,7 +16,7 @@ Choose the fastest lookup path based on available query clues:
 
 | Clue | Command | Notes |
 | :--- | :--- | :--- |
-| **Internal Document Number** | `sv-cli buchung show <documentNumber>` | Direct fetch of canonical posting |
+| **Internal Document Number** | `sv-cli buchung show <documentNumber>` | Direct fetch with verified `lifecycle` |
 | **External Invoice Number / Text** | `sv-cli journal search --text="<query>" --all` | Searches Belegtext and external references |
 | **Amount & Date Window** | `sv-cli journal search --amount-min=X --amount-max=X --from=... --to=...` | Exact cent match on impersonal rows |
 | **Personenkonto (Debitor/Kreditor)** | `sv-cli personenkonto journal --data '{"pageSize":1000,"search":[{"field":"accountNumber","operator":"equals","value":"<nr>"}]}'` | Required for debtor/creditor contra-rows (no `--konto` flag; raw search body) |
@@ -24,9 +24,8 @@ Choose the fastest lookup path based on available query clues:
 
 > [!NOTE]
 > `sv-cli journal search` returns impersonal rows on Sachkonten (including aggregate Sammelkonten). To inspect individual Debitor or Kreditor contra-rows, always query `sv-cli personenkonto journal`.
-
-> [!NOTE]
-> Before treating a matching row as active, confirm its cancellation/correction chain: a Buchung may be superseded by a Storno plus Korrekturbuchung. For open items, read the fields the response actually carries — Scopevisio may expose the item as `postingNumber` with a signed `amount` instead of `documentNumber`/`openAmount`.
+>
+> Before treating a matching row as active, run `sv-cli buchung show <documentNumber>` and require `lifecycle.state=active`. For `cancelled`, follow `lifecycle.cancellation` and the optional `lifecycle.replacementDocumentNumber`; stop on `conflict`. For open items, read the fields the response actually carries — Scopevisio may expose the item as `postingNumber` with a signed `amount` instead of `documentNumber`/`openAmount`.
 
 ---
 

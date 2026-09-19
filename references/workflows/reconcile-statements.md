@@ -42,7 +42,7 @@ Match bank postings from the journal (`sv-cli journal search --konto=<Geldkonto>
 
 Rules:
 * Amount and date alone are candidates, not proof. Require a unique match; record unresolved cases as `mehrdeutig` (several candidates) or `kein_treffer` (none), and never pick a plausible candidate silently.
-* Run `sv-cli buchung show <documentNumber>` for each match and treat it as active only when `lifecycle.state` is `active`. Use an Offene-Posten `postingNumber` when it identifies that Buchung; otherwise resolve the `documentNumber` from the Journal or Personenjournal rather than inventing one. When cancelled, read `lifecycle.cancellationDocumentNumber`, `lifecycle.cancellation`, and optional `lifecycle.replacementDocumentNumber`; stop on `conflict`.
+* Resolve `<bookingNumber>` from the Buchung's `documentNumber` or an Offene-Posten `postingNumber` that identifies it; otherwise use the Journal or Personenjournal rather than inventing an identifier. Run `sv-cli buchung show <bookingNumber>` and treat it as active only when `lifecycle.state` is `active`. When cancelled, read `lifecycle.cancellationDocumentNumber`, `lifecycle.cancellation`, and optional `lifecycle.replacementDocumentNumber`; stop on `conflict`.
 * Investigate duplicates, reversals, refunds, and transfers separately — each statement movement needs exactly one accounting representation.
 * Compare Journal, Personenjournal, Offene Posten, and source transaction records using the same cutoff, currency, signs, and opening balance.
 

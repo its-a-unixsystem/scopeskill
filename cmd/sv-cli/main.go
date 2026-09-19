@@ -28,173 +28,82 @@ func main() {
 	}
 }
 
+type command struct {
+	name string
+	run  func(configPath string, args []string) error
+}
+
+type clientCommandFunc func(*scopeskill.Client, []string) error
+
+func clientCommand(name string, run clientCommandFunc) command {
+	return command{
+		name: name,
+		run: func(configPath string, args []string) error {
+			client, err := newClient(configPath)
+			if err != nil {
+				return err
+			}
+			return run(client, args)
+		},
+	}
+}
+
+var commands = []command{
+	{name: "auth", run: auth},
+	{name: "help", run: func(_ string, _ []string) error { return usage() }},
+	clientCommand("get", get),
+	clientCommand("post", post),
+	clientCommand("download", download),
+	clientCommand("datev", datev),
+	clientCommand("bericht", bericht),
+	clientCommand("teamwork", teamwork),
+	clientCommand("sachkonto", sachkonto),
+	clientCommand("kontakt", kontakt),
+	clientCommand("debitor", debitor),
+	clientCommand("kreditor", kreditor),
+	clientCommand("personenkonto", personenkonto),
+	clientCommand("buchhaltung", buchhaltung),
+	clientCommand("dimension", dimension),
+	clientCommand("textbaustein", textbaustein),
+	clientCommand("statistik", statistik),
+	clientCommand("zahlungsbedingung", zahlungsbedingung),
+	clientCommand("steuermatrix", steuermatrix),
+	clientCommand("steuersachverhalt", steuersachverhalt),
+	clientCommand("eingangsrechnung", eingangsrechnung),
+	clientCommand("gutschrift", gutschrift),
+	clientCommand("offene-posten", offenePosten),
+	clientCommand("journal", journal),
+	clientCommand("kasse", kasse),
+	clientCommand("reisekosten", reisekosten),
+	clientCommand("buchung", buchung),
+}
+
+func lookupCommand(name string) (func(configPath string, args []string) error, bool) {
+	for _, cmd := range commands {
+		if cmd.name == name {
+			return cmd.run, true
+		}
+	}
+	return nil, false
+}
+
 func run(args []string) error {
 	configPath, commandArgs, err := parseGlobalFlags(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return usage()
+		}
 		return err
 	}
 	if len(commandArgs) == 0 {
 		return usage()
 	}
 
-	switch commandArgs[0] {
-	case "auth":
-		return auth(configPath, commandArgs[1:])
-	case "help", "-h", "--help":
-		return usage()
-	case "get":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return get(client, commandArgs[1:])
-	case "post":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return post(client, commandArgs[1:])
-	case "download":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return download(client, commandArgs[1:])
-	case "datev":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return datev(client, commandArgs[1:])
-	case "bericht":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return bericht(client, commandArgs[1:])
-	case "teamwork":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return teamwork(client, commandArgs[1:])
-	case "sachkonto":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return sachkonto(client, commandArgs[1:])
-	case "kontakt":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return kontakt(client, commandArgs[1:])
-	case "debitor":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return debitor(client, commandArgs[1:])
-	case "kreditor":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return kreditor(client, commandArgs[1:])
-	case "personenkonto":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return personenkonto(client, commandArgs[1:])
-	case "buchhaltung":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return buchhaltung(client, commandArgs[1:])
-	case "dimension":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return dimension(client, commandArgs[1:])
-	case "textbaustein":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return textbaustein(client, commandArgs[1:])
-	case "statistik":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return statistik(client, commandArgs[1:])
-	case "zahlungsbedingung":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return zahlungsbedingung(client, commandArgs[1:])
-	case "steuermatrix":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return steuermatrix(client, commandArgs[1:])
-	case "steuersachverhalt":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return steuersachverhalt(client, commandArgs[1:])
-	case "eingangsrechnung":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return eingangsrechnung(client, commandArgs[1:])
-	case "gutschrift":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return gutschrift(client, commandArgs[1:])
-	case "offene-posten":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return offenePosten(client, commandArgs[1:])
-	case "journal":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return journal(client, commandArgs[1:])
-	case "kasse":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return kasse(client, commandArgs[1:])
-	case "reisekosten":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return reisekosten(client, commandArgs[1:])
-	case "buchung":
-		client, err := newClient(configPath)
-		if err != nil {
-			return err
-		}
-		return buchung(client, commandArgs[1:])
-	default:
+	runCmd, ok := lookupCommand(commandArgs[0])
+	if !ok {
 		return fmt.Errorf("unknown command: %s", commandArgs[0])
 	}
+	return runCmd(configPath, commandArgs[1:])
 }
 
 func newClient(configPath string) (*scopeskill.Client, error) {
@@ -706,6 +615,11 @@ func normalizeFlagArgs(args []string) []string {
 
 func parseGlobalFlags(args []string) (string, []string, error) {
 	flags := flag.NewFlagSet("sv-cli", flag.ContinueOnError)
+	flags.SetOutput(cliError)
+	// Suppress the flag package's default usage listing; run() owns
+	// usage output and prints the CLI banner on flag.ErrHelp. Parse
+	// errors still propagate so invalid global flags are reported.
+	flags.Usage = func() {}
 	configPath := flags.String("config", "", "scopeskill config path")
 	if err := flags.Parse(args); err != nil {
 		return "", nil, err

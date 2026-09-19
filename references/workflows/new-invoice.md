@@ -75,7 +75,7 @@ sv-cli buchhaltung fiscalyears   # target Buchungsperiode must be open
      sv-cli personenkonto journal --data '{"pageSize":1000,"search":[{"field":"accountNumber","operator":"equals","value":"<kreditorNumber>"}]}'
      sv-cli offene-posten list --seite=kreditor --konto=<kreditorNumber> --all
      ```
-   * For each matching `documentNumber`, run `sv-cli buchung show <documentNumber>` and treat it as active only when `lifecycle.state` is `active`. Follow `lifecycle.cancellation` and `lifecycle.replacementDocumentNumber` when cancelled; stop on `conflict`.
+   * Run `sv-cli buchung show <documentNumber>` for each match and treat it as active only when `lifecycle.state` is `active`. Use an Offene-Posten `postingNumber` when it identifies that Buchung; otherwise resolve the `documentNumber` from the Journal or Personenjournal rather than inventing one. When cancelled, read `lifecycle.cancellationDocumentNumber`, `lifecycle.cancellation`, and optional `lifecycle.replacementDocumentNumber`; stop on `conflict`.
    * **If already booked:** do not recreate expense or VAT. If only the payment is missing, prepare only the payment and subsequent clearing ([new-account-movement.md](new-account-movement.md)).
    * **If the booking is incorrect:** stop and use the correction workflow (`buchung cancel` and `buchung create` as separately approved steps). Do not hide the error with a compensating payment.
 

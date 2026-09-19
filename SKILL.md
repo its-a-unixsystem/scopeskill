@@ -142,8 +142,9 @@ sv-cli journal search --konto=4400 --amount-min=100.00 --all
 > Buchung.
 
 Inspect cancellation state with read-only `buchung show <nr>`. Read
-`lifecycle.state`, `lifecycle.cancellation`, and the optional
-`lifecycle.replacementDocumentNumber`; `conflict` exits non-zero. Cancelling a Buchung is a write
+`lifecycle.state`, `lifecycle.cancellationDocumentNumber`, the verified
+`lifecycle.cancellation`, and optional `lifecycle.replacementDocumentNumber`;
+`conflict` exits non-zero. Cancelling a Buchung is a write
 operation: run `buchung cancel <nr> --dry-run` only when a cancellation is
 intended, show the preview to the user, and only re-run with `--yes` after
 explicit approval. `buchung replace` is gated and refuses to write: the

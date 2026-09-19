@@ -60,7 +60,7 @@ A Buchung touching a Personenkonto must be consistent across all three views:
    sv-cli offene-posten list --seite=debitor|kreditor --konto=<personalAccountNumber> --all
    ```
    *Compare all three views using the same cutoff, currency, signs, and opening balance.* Read the fields the response actually carries: Scopevisio may expose an open item as `postingNumber` with a signed `amount` instead of `documentNumber`/`openAmount`.
-* **Flag Discrepancies:** Personal account balance $\neq$ sum of open items. For each matching `documentNumber`, run `sv-cli buchung show <documentNumber>` and treat it as active only when `lifecycle.state` is `active`. Follow `lifecycle.cancellation` and `lifecycle.replacementDocumentNumber` when cancelled; stop on `conflict`.
+* **Flag Discrepancies:** Personal account balance $\neq$ sum of open items. Run `sv-cli buchung show <documentNumber>` for each match and treat it as active only when `lifecycle.state` is `active`. Use an Offene-Posten `postingNumber` when it identifies that Buchung; otherwise resolve the `documentNumber` from the Journal or Personenjournal rather than inventing one. When cancelled, read `lifecycle.cancellationDocumentNumber`, `lifecycle.cancellation`, and optional `lifecycle.replacementDocumentNumber`; stop on `conflict`.
 
 ---
 

@@ -87,3 +87,7 @@ For out-of-the-box use, publish GitHub Releases with prebuilt binaries. The rele
 - `sv-cli-windows-amd64.exe`
 
 A Mac user should download the matching `darwin` binary, rename it to `sv-cli`, allow it in macOS if Gatekeeper asks, and run it without installing Python, Go, or package dependencies.
+
+## License
+
+[AGPL-3.0](LICENSE)

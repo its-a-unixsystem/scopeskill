@@ -1,8 +1,8 @@
-# scopeskill
+# Scopeskill
 
-Codex skill plus helper client for Scopevisio automation.
+A claude/codex AI skill (plus helper client) for accessing and automating the bookkeeping system [Scopevisio](https://www.scopevisio.com/).
 
-Scopevisio documents the REST API at:
+Scopevisio's REST API is documents at:
 
 - https://help.scopevisio.com/en/articles/467358-rest-api-first-steps
 - https://appload.scopevisio.com/static/swagger/index.html#/
@@ -25,47 +25,151 @@ The Swagger UI is backed by:
 
 ## Quickstart
 
-Create a technical user in Scopevisio and give it the required licences and rights.
+### Create a technical user in Scopevisio
 
-Build locally:
+Give the user the required licences and rights.
+
+
+### Get the binary
+
+You find it under the [latest release](https://github.com/its-a-unixsystem/scopeskill/releases/tag/v0.9).
+
+> [!NOTE]
+> You can build the binary locally:
+>
+> ```bash
+> go build -o ./bin/sv-cli ./cmd/sv-cli
+> ```
+
+### Authenticate
+
+Choose one of these authentication methods.
+
+The interactive login is easier but requires you to enter your password. If you want to generate the token yourself you can do this Scopevisio's webpage.
+
+### Scopevisio-generated token
+Follow [Scopevisio's REST API instructions](https://help.scopevisio.com/de/articles/467358-rest-api-erste-schritte) and generate tokens through its Swagger UI or documented `curl` request. The response contains a short-lived `access_token` and a long-lived `refresh_token`.
+
+You then write the config:
 
 ```bash
-go build -o ./bin/sv-cli ./cmd/sv-cli
+sv-cli auth import
 ```
 
-Run one-time interactive login:
+It will ask you for your Kundennummer and the refresh token and writes the config
+
+### Interactive login with login and password
+
+Run the one-time login:
 
 ```bash
-./bin/sv-cli auth login
+sv-cli auth login
 ```
 
-`auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active scopeskill config. It probes and stores the `SKR` automatically. It never stores the initial username, password, or organisation ID.
+The command asks for:
 
-Alternatively, generate tokens through [Scopevisio's REST API instructions](https://help.scopevisio.com/de/articles/467358-rest-api-erste-schritte) and import the long-lived refresh token:
+1. Kundennummer — required
+2. Benutzername — required
+3. Passwort — required and masked while typing
+4. Organisations-ID — optional
 
-```bash
-./bin/sv-cli auth import
-```
+It stores `CUSTOMER` and `REST_REFRESH_TOKEN` in the active scopeskill config and detects `SKR` automatically.
 
-`auth import` prompts for Kundennummer and masks the refresh token while validating it. Enter the long-lived `refresh_token`, not the short-lived `access_token`. Use `--force` to replace an existing token or `--skr=skr03|skr04` to set SKR explicitly.
+> [!WARNING]
+> It never stores the username, password, or organisation ID.
+
+### Verify authentication
 
 Check authentication:
 
 ```bash
-./bin/sv-cli auth show
+sv-cli auth show
 ```
 
 Search contacts using the `sv-cli` helper:
 
 ```bash
-./bin/sv-cli kontakt search --email="@example.com"
+sv-cli kontakt search --email="@example.com"
 ```
 
 For a comprehensive list of all accounting, teamwork, and REST API commands available via `sv-cli`, please refer to the **[CLI Reference](docs/cli-reference.md)**.
 
-## Configuration
+> [!NOTE]
+> sv-cli is focussed on agentic bookkeeping, so the output is usually always JSON:
+>
+> ```bash
+> $ bin/sv-cli sachkonto search --number-prefix=1800
+> [
+>   {
+>     "accountTypeName": "Aktiv/Passiv",
+>     "active": true,
+>     "name": "Bank",
+>     "number": "1800"
+>   }
+> ]
+> ```
 
-The scopeskill config is an env-file. By default, `sv-cli` uses the user config directory; pass `--config <path>` or set `SCOPESKILL_CONFIG` to use a different file.
+## SKILL
+
+Place the repository files in the `skills` directory either of the local project (`.agents/skills` or `.claude/skills`).
+
+Easie is to use vercels skills tool:
+
+```bash
+npx skills add https://github.com/its-a-unixsystem/scopeskill --skill scopeskill
+```
+
+## First steps
+
+Make sure your agent loads the skill correctly, then simply ask questions:
+
+```bash
+What are the last 10 transactions on 1800 ?
+```
+
+```bash
+Please list all booked invoices from Google and verify that they are correct.
+```
+
+
+## Configuration details
+
+The configuration is short:
+
+```ini
+# scopeskill config — managed by 'sv-cli auth login'
+  {
+    "accountTypeName": "Aktiv/Passiv",
+    "active": true,
+    "name": "Bank",
+    "number": "1800"
+  }
+]
+```
+
+
+## SKILL
+
+Place the repository files in the `skills` directory either of the local project (`.agents/skills` or `.claude/skills`).
+
+Easie is to use vercels skills tool:
+
+```bash
+npx skills add https://github.com/its-a-unixsystem/scopeskill --skill scopeskill
+```
+
+## Configuration details
+
+The configuration is short:
+
+```ini
+# scopeskill config — managed by 'sv-cli auth login'
+CUSTOMER=12345678
+REST_REFRESH_TOKEN=aaaaaaaa-bbbbbbb-cccc-dddd-eeee-ffffffffffff
+SKR=skr04
+```
+
+By default, `sv-cli` uses the user config directory; pass `--config <path>` or set `SCOPESKILL_CONFIG` to use a different file.
 
 Durable config keys:
 
@@ -85,16 +189,14 @@ Supported one-process environment overrides:
 
 REST access tokens are short-lived request credentials. `sv-cli` stores them in a separate disposable access-token cache, keyed by refresh-token fingerprint. REST refresh tokens are durable config credentials. Deleting the access-token cache does not remove setup; deleting `REST_REFRESH_TOKEN` from config does.
 
-## Non-Technical Users
+### config location
 
-For out-of-the-box use, publish GitHub Releases with prebuilt binaries. The release workflow builds:
+| OS      | Default path                                                                             |
+|---------|------------------------------------------------------------------------------------------|
+| Linux   | `$XDG_CONFIG_HOME/scopeskill/config`, falling back to `~/.config/scopeskill/config`          |
+| macOS   | `~/Library/Application Support/scopeskill/config`                                          |
+| Windows | `%AppData%\scopeskill\config` (typically `C:\Users\<you>\AppData\Roaming\scopeskill\config`) |
 
-- `sv-cli-darwin-arm64` for Apple Silicon Macs
-- `sv-cli-darwin-amd64` for Intel Macs
-- `sv-cli-linux-amd64`
-- `sv-cli-windows-amd64.exe`
-
-A Mac user should download the matching `darwin` binary, rename it to `sv-cli`, allow it in macOS if Gatekeeper asks, and run it without installing Python, Go, or package dependencies.
 
 ## License
 

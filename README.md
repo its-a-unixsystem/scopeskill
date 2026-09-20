@@ -1,3 +1,5 @@
+[🇩🇪 Deutsche Version](README.de.md) | [🇬🇧 English Version](README.md)
+
 # Scopeskill
 
 A claude/codex AI skill (plus helper client) for accessing and automating the bookkeeping system [Scopevisio](https://www.scopevisio.com/).
@@ -108,16 +110,6 @@ What are the last 10 transactions on 1800 ?
 
 ```bash
 Please list all booked invoices from Google and verify that they are correct.
-```
-
-## SKILL
-
-Place the repository files in the `skills` directory either of the local project (`.agents/skills` or `.claude/skills`).
-
-Easie is to use vercels skills tool:
-
-```bash
-npx skills add https://github.com/its-a-unixsystem/scopeskill --skill scopeskill
 ```
 
 ## Configuration details

@@ -5,13 +5,13 @@ Scopevisio uses OAuth2-style bearer tokens for REST calls.
 ## Credential Vocabulary
 
 - Initial credentials: Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. `sv-cli auth login` collects these from a TTY and never stores them.
-- REST refresh token: durable config credential stored as `REST_REFRESH_TOKEN` with the paired `CUSTOMER` customer number.
-- REST access token: short-lived request credential obtained from the refresh token and stored only in the disposable access-token cache.
+- REST refresh token: durable config credential stored as `REST_REFRESH_TOKEN` with the paired `CUSTOMER` customer number. `sv-cli auth import` accepts this vendor-generated token through a masked TTY prompt.
+- REST access token: short-lived request credential obtained from the refresh token and stored only in the disposable access-token cache. Do not pass it to `auth import`.
 
 ## Recommended Flow
 
 1. Use a technical Scopevisio user for automation.
-2. Run `sv-cli auth login` once in a terminal.
+2. Run `sv-cli auth login` once in a terminal, or generate a long-lived `refresh_token` through Scopevisio and run `sv-cli auth import`.
 3. Use refresh-token based auth for ongoing automation.
 4. Use `sv-cli auth show` to inspect setup without printing the full token.
 5. Use `sv-cli auth secret` only when the user explicitly asks for the full refresh token.
@@ -28,7 +28,7 @@ REST_REFRESH_TOKEN=...
 BASE_URL=https://appload.scopevisio.com/rest
 ```
 
-`BASE_URL` is optional. `auth login` writes `CUSTOMER` and `REST_REFRESH_TOKEN`; it preserves unrelated config keys and comments where possible.
+`BASE_URL` is optional. `auth login` and `auth import` write `CUSTOMER` and `REST_REFRESH_TOKEN`; they preserve unrelated config keys and comments where possible.
 
 ## Environment Overrides
 
@@ -51,6 +51,7 @@ The access-token cache is separate from the scopeskill config. It stores short-l
 
 ```bash
 sv-cli auth login
+sv-cli auth import
 sv-cli auth show
 sv-cli auth secret
 sv-cli auth delete

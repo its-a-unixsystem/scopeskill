@@ -116,12 +116,14 @@ func newClient(configPath string) (*scopeskill.Client, error) {
 
 func auth(configPath string, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintln(cliOutput, "auth subcommands: login show secret delete")
+		fmt.Fprintln(cliOutput, "auth subcommands: login import show secret delete")
 		return nil
 	}
 	switch args[0] {
 	case "login":
 		return authLogin(configPath, args[1:])
+	case "import":
+		return authImport(configPath, args[1:])
 	case "show":
 		return authShow(configPath, args[1:])
 	case "secret":
@@ -262,19 +264,77 @@ func authLogin(configPath string, args []string) error {
 	if token.RefreshToken == "" {
 		return errors.New("token response did not include refresh_token")
 	}
-	if err := configFile.SetAuthLogin(credentials.Customer, token.RefreshToken); err != nil {
+	return writeAuthConfig(path, &configFile, baseConfig.BaseURL, credentials.Customer, token.RefreshToken, token.AccessToken, *skrFlag)
+}
+
+func authImport(configPath string, args []string) error {
+	flags := flag.NewFlagSet("auth import", flag.ContinueOnError)
+	force := flags.Bool("force", false, "overwrite an existing REST refresh token")
+	skrFlag := flags.String("skr", "", "bypass the SKR probe with skr03 or skr04")
+	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	probeClient := scopeskill.NewClient(scopeskill.Config{
-		BaseURL:     baseConfig.BaseURL,
-		AccessToken: token.AccessToken,
+	if flags.NArg() != 0 {
+		return fmt.Errorf("usage: sv-cli auth import [--force] [--skr=skr03|skr04]")
+	}
+
+	path := scopeskill.ResolveConfigPath(configPath)
+	configFile, err := scopeskill.ReadConfigFile(path)
+	if err != nil {
+		return err
+	}
+	if configFile.Values()[scopeskill.ConfigKeyRestRefreshToken] != "" && !*force {
+		return errors.New("scopeskill config already contains REST_REFRESH_TOKEN; rerun sv-cli auth import --force to overwrite it")
+	}
+	if !isTerminal(cliInput) {
+		return errors.New("sv-cli auth import requires a TTY; stdin is not interactive")
+	}
+	if os.Getenv(scopeskill.EnvRestRefreshToken) != "" {
+		fmt.Fprintf(cliError, "warning: %s is set and will shadow the REST refresh token written to the scopeskill config\n", scopeskill.EnvRestRefreshToken)
+	}
+
+	customer, err := promptLine("Kundennummer: ")
+	if err != nil {
+		return err
+	}
+	refreshToken, err := promptPassword("Refresh Token: ")
+	if err != nil {
+		return err
+	}
+	if customer == "" {
+		return errors.New("Kundennummer ist erforderlich")
+	}
+	if refreshToken == "" {
+		return errors.New("Refresh Token ist erforderlich")
+	}
+
+	baseConfig, err := scopeskill.LoadClientConfig(configPath)
+	if err != nil {
+		return err
+	}
+	client := scopeskill.NewClient(scopeskill.Config{
+		BaseURL:          baseConfig.BaseURL,
+		Customer:         customer,
+		RefreshToken:     refreshToken,
+		AccessTokenCache: baseConfig.AccessTokenCache,
 	})
+	token, err := client.RefreshToken(refreshToken)
+	if err != nil {
+		return fmt.Errorf("refresh token validation failed; verify Kundennummer and Refresh Token: %w", err)
+	}
+	return writeAuthConfig(path, &configFile, baseConfig.BaseURL, customer, refreshToken, token.AccessToken, *skrFlag)
+}
+
+func writeAuthConfig(path string, configFile *scopeskill.ConfigFile, baseURL string, customer string, refreshToken string, accessToken string, skrFlag string) error {
+	if err := configFile.SetAuthLogin(customer, refreshToken); err != nil {
+		return err
+	}
 	probeCtx := &scopeskill.ProbeContext{
-		Client:  probeClient,
-		Config:  &configFile,
+		Client:  scopeskill.NewClient(scopeskill.Config{BaseURL: baseURL, AccessToken: accessToken}),
+		Config:  configFile,
 		Stderr:  cliError,
 		Prompt:  func(message string) (string, error) { return promptLine(message) },
-		SKRFlag: *skrFlag,
+		SKRFlag: skrFlag,
 	}
 	if err := scopeskill.RunProbes(scopeskill.DefaultProbes(), probeCtx); err != nil {
 		return err

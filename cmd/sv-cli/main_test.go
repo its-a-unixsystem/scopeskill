@@ -33,7 +33,7 @@ func TestAuthHelpListsLogin(t *testing.T) {
 	if err := run([]string{"auth"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"login", "show", "secret", "delete"} {
+	for _, want := range []string{"login", "import", "show", "secret", "delete"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("auth help missing %q in %q", want, output.String())
 		}

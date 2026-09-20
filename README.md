@@ -41,6 +41,14 @@ Run one-time interactive login:
 
 `auth login` asks for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`. It writes only `CUSTOMER` and `REST_REFRESH_TOKEN` to the active scopeskill config. It probes and stores the `SKR` automatically. It never stores the initial username, password, or organisation ID.
 
+Alternatively, generate tokens through [Scopevisio's REST API instructions](https://help.scopevisio.com/de/articles/467358-rest-api-erste-schritte) and import the long-lived refresh token:
+
+```bash
+./bin/sv-cli auth import
+```
+
+`auth import` prompts for Kundennummer and masks the refresh token while validating it. Enter the long-lived `refresh_token`, not the short-lived `access_token`. Use `--force` to replace an existing token or `--skr=skr03|skr04` to set SKR explicitly.
+
 Check authentication:
 
 ```bash

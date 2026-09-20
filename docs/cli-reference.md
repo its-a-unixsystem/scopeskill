@@ -14,6 +14,8 @@ Manage the configured REST refresh token.
 
 - `sv-cli auth login [--force] [--skr=skr03|skr04]`
   Interactive setup. Asks for credentials and saves the durable `REST_REFRESH_TOKEN` to the config. Probes and saves `SKR`.
+- `sv-cli auth import [--force] [--skr=skr03|skr04]`
+  Import a vendor-generated long-lived `refresh_token`. Asks for Kundennummer and the masked token, validates them through the token exchange, then saves `CUSTOMER`, `REST_REFRESH_TOKEN`, and `SKR`. Do not enter the short-lived `access_token`.
 - `sv-cli auth show`
   Show a redacted view of the configured `REST_REFRESH_TOKEN` and its source.
 - `sv-cli auth secret`

@@ -60,6 +60,10 @@ _Avoid_: Scopevisio environment variable
 The explicit interactive setup action that collects **Initial credentials**, exchanges them for a **REST access token** and **REST refresh token**, and writes the **scopeskill config**.
 _Avoid_: Implicit login, automatic login
 
+**Auth import**:
+The explicit interactive setup action that collects a **Customer number** and vendor-generated **REST refresh token**, validates the pair, and writes the **scopeskill config**.
+_Avoid_: Access-token import, manual config editing
+
 **Auth show**:
 The action that displays a redacted view of the configured **REST refresh token**.
 _Avoid_: Login
@@ -229,11 +233,12 @@ _Avoid_: Travel entries
 - The bearer auth header is hardcoded to `Authorization` because Scopevisio's Swagger and first-steps docs both specify `Authorization: Bearer <token>`; no override is exposed.
 - The default **scopeskill config** belongs in the user's config directory; project-local secret files are not auto-discovered.
 - A **Config override** may point the **`sv-cli`** at a different config file for a specific run.
-- **Auth login** is the only interactive command and is responsible for writing `REST_REFRESH_TOKEN` to **scopeskill config**.
-- **Auth login** is TTY-prompt only in the first implementation; non-interactive flags or `SCOPESKILL_LOGIN_*` env input are deferred until there is a concrete unattended-setup need.
+- **Auth login** and **Auth import** are the interactive commands responsible for writing `REST_REFRESH_TOKEN` to **scopeskill config**.
+- Both setup actions are TTY-prompt only; non-interactive token flags are excluded because they can expose secrets in shell history or process listings.
 - **Auth login** prompts for Kundennummer, Benutzername, Passwort, and an optional Organisations-ID; password input is masked with `*`.
-- **Auth login** refuses to overwrite an existing `REST_REFRESH_TOKEN` in **scopeskill config** unless `--force` is passed.
-- **Auth login** warns when `SCOPESKILL_REST_REFRESH_TOKEN` is set in the environment, because that **Environment override** would shadow the freshly written token.
+- **Auth import** prompts for Kundennummer and a vendor-generated **REST refresh token**, masks the token, and validates the pair before changing the config.
+- Both setup actions refuse to overwrite an existing `REST_REFRESH_TOKEN` in **scopeskill config** unless `--force` is passed.
+- Both setup actions warn when `SCOPESKILL_REST_REFRESH_TOKEN` is set in the environment, because that **Environment override** would shadow the freshly written token.
 - `auth` without a subcommand outputs one-line help for the auth command group.
 - **Auth show** displays a redacted **REST refresh token**, labelled with its source (`config` or `env:SCOPESKILL_REST_REFRESH_TOKEN`), and reflects the effective token that normal API calls would use.
 - **Auth secret** displays the full effective **REST refresh token**, labelled with its source.
@@ -259,7 +264,7 @@ _Avoid_: Travel entries
 - Teamwork folders are accessed through generic JSON calls in the first implementation.
 - `download <path> --out` is a generic binary GET and is not Teamwork-specific.
 - Teamwork-specific operations that need bespoke flags or formatting (currently only multipart upload) live under the `teamwork` subcommand group, e.g. `sv-cli teamwork upload`.
-- An **Unternehmen probe** runs during **Auth login** after token exchange and writes its result (e.g. `SKR`) to **scopeskill config**; re-running **Auth login** re-probes and overwrites the stored value.
+- An **Unternehmen probe** runs during **Auth login** or **Auth import** after token exchange and writes its result (e.g. `SKR`) to **scopeskill config**; re-running either setup action re-probes and overwrites the stored value.
 - The first **Unternehmen probe** is **SKR** detection, which queries `/impersonalaccounts` for `4400` (→ `SKR04`) and `8400` (→ `SKR03`), falling back to a TTY prompt when the chart is custom.
 - No `SCOPESKILL_*` environment override is exposed for **Unternehmen** attributes such as `SKR`, because they pair with `CUSTOMER` and `REST_REFRESH_TOKEN`; switch identity wholesale via `--config` (consistent with ADR-0004).
 - A **Personenkonto** is either a **Debitor** or a **Kreditor** linked to a **Kontakt**.

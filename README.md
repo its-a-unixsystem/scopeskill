@@ -2,27 +2,6 @@
 
 A claude/codex AI skill (plus helper client) for accessing and automating the bookkeeping system [Scopevisio](https://www.scopevisio.com/).
 
-Scopevisio's REST API is documents at:
-
-- https://help.scopevisio.com/en/articles/467358-rest-api-first-steps
-- https://appload.scopevisio.com/static/swagger/index.html#/
-
-The Swagger UI is backed by:
-
-- https://appload.scopevisio.com/rest/swagger.json
-
-## Skill Layout
-
-- `SKILL.md`: the trigger and operating guide for agents.
-- `docs/cli-reference.md`: `sv-cli` command reference and usage examples.
-- `references/auth.md`: token and login workflow.
-- `references/bookkeeping.md`: Scopevisio bookkeeping object map and API guardrails.
-- `references/teamworkbridge.md`: Teamwork/CenterDevice access, upload, and download workflow.
-- `references/workflows/`: step-by-step SOPs (incoming invoices, account movements, reconciliations, etc.).
-- `references/workflows/cleanup-checklist.md`: preflight and postcondition checklist for cleanup and reconciliation.
-- `cmd/sv-cli/`: small Go helper CLI. Build it as `sv-cli`.
-- `internal/scopeskill/`: helper client and config package used by `sv-cli`.
-
 ## Quickstart
 
 ### Create a technical user in Scopevisio
@@ -75,7 +54,7 @@ The command asks for:
 
 It stores `CUSTOMER` and `REST_REFRESH_TOKEN` in the active scopeskill config and detects `SKR` automatically.
 
-> [!WARNING]
+> [!IMPORTANT]
 > It never stores the username, password, or organisation ID.
 
 ### Verify authentication
@@ -131,23 +110,6 @@ What are the last 10 transactions on 1800 ?
 Please list all booked invoices from Google and verify that they are correct.
 ```
 
-
-## Configuration details
-
-The configuration is short:
-
-```ini
-# scopeskill config — managed by 'sv-cli auth login'
-  {
-    "accountTypeName": "Aktiv/Passiv",
-    "active": true,
-    "name": "Bank",
-    "number": "1800"
-  }
-]
-```
-
-
 ## SKILL
 
 Place the repository files in the `skills` directory either of the local project (`.agents/skills` or `.claude/skills`).
@@ -196,6 +158,27 @@ REST access tokens are short-lived request credentials. `sv-cli` stores them in 
 | Linux   | `$XDG_CONFIG_HOME/scopeskill/config`, falling back to `~/.config/scopeskill/config`          |
 | macOS   | `~/Library/Application Support/scopeskill/config`                                          |
 | Windows | `%AppData%\scopeskill\config` (typically `C:\Users\<you>\AppData\Roaming\scopeskill\config`) |
+
+## Reference
+
+Scopevisio's REST API is documents at:
+
+- https://help.scopevisio.com/en/articles/467358-rest-api-first-steps
+- https://appload.scopevisio.com/static/swagger/index.html#/
+
+The Swagger UI is backed by:
+
+- https://appload.scopevisio.com/rest/swagger.json
+
+## Skill Layout
+
+- `SKILL.md`: the trigger and operating guide for agents.
+- `docs/cli-reference.md`: `sv-cli` command reference and usage examples.
+- `references/auth.md`: token and login workflow.
+- `references/bookkeeping.md`: Scopevisio bookkeeping object map and API guardrails.
+- `references/teamworkbridge.md`: Teamwork/CenterDevice access, upload, and download workflow.
+- `references/workflows/`: step-by-step SOPs (incoming invoices, account movements, reconciliations, etc.).
+- `internal/scopeskill/`: helper client and config package used by `sv-cli`.
 
 
 ## License

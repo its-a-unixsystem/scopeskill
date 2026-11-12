@@ -15,6 +15,7 @@ type journalStub struct {
 	journalRecords []any
 	journalByID    map[string][]any
 	belegByPath    map[string]map[string]any
+	journalSearch  func(map[string]any) []any
 }
 
 func newJournalStub(t *testing.T) *journalStub {
@@ -37,7 +38,11 @@ func newJournalStub(t *testing.T) *journalStub {
 			var body map[string]any
 			_ = json.Unmarshal(raw, &body)
 			stub.journalBodies = append(stub.journalBodies, body)
-			writeJSONForCLI(w, map[string]any{"records": stub.journalRecords})
+			records := stub.journalRecords
+			if stub.journalSearch != nil {
+				records = stub.journalSearch(body)
+			}
+			writeJSONForCLI(w, map[string]any{"records": records})
 		case strings.HasPrefix(r.URL.Path, "/rest/journal/") && r.Method == http.MethodGet:
 			id := strings.TrimPrefix(r.URL.Path, "/rest/journal/")
 			records, ok := stub.journalByID[id]
@@ -286,4 +291,89 @@ func assertCondition(t *testing.T, search []any, field, operator string, value a
 		}
 	}
 	t.Fatalf("missing condition field=%s operator=%s value=%#v in %#v", field, operator, value, search)
+}
+
+func TestJournalSearchAllPreservesDocumentAcrossPageBoundary(t *testing.T) {
+	stub := newJournalStub(t)
+	rows := make([]any, 1003)
+	for i := range rows {
+		document := "preceding"
+		if i >= 999 {
+			document = "boundary-document"
+		}
+		rows[i] = map[string]any{"rowNumber": i + 1, "documentNumber": document, "postingDate": 1748822400000}
+	}
+	stub.journalSearch = func(body map[string]any) []any {
+		if after, ok := body["afterId"].(float64); ok {
+			if body["order"] != nil || body["page"] != float64(0) {
+				t.Errorf("invalid cursor request: %#v", body)
+			}
+			page := []any{}
+			for _, row := range rows {
+				if row.(map[string]any)["rowNumber"].(int) > int(after) && len(page) < 1000 {
+					page = append(page, row)
+				}
+			}
+			return page
+		}
+		// Offset paging moves the tied document's first line behind its other
+		// lines after page zero, repeating it and losing a distinct line.
+		page := int(body["page"].(float64))
+		if page == 0 {
+			return rows[:1000]
+		}
+		if page == 1 {
+			return []any{rows[1001], rows[1002], rows[999]}
+		}
+		return []any{}
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+	if err := run([]string{"--config", configPath, "journal", "search", "--all"}); err != nil {
+		t.Fatal(err)
+	}
+	var got []map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1003 {
+		t.Fatalf("rows = %d, want 1003", len(got))
+	}
+	documentLines := map[float64]int{}
+	for i, row := range got {
+		if row["rowNumber"] != float64(i+1) {
+			t.Fatalf("row %d = %#v", i+1, row)
+		}
+		if row["documentNumber"] == "boundary-document" {
+			documentLines[row["rowNumber"].(float64)]++
+		}
+	}
+	for id := float64(1000); id <= 1003; id++ {
+		if documentLines[id] != 1 {
+			t.Fatalf("document line %.0f appears %d times", id, documentLines[id])
+		}
+	}
+}
+
+func TestJournalSearchAllIntegrityErrorHasNoOutput(t *testing.T) {
+	stub := newJournalStub(t)
+	stub.journalSearch = func(body map[string]any) []any {
+		if body["afterId"] == float64(0) {
+			rows := make([]any, 1000)
+			for i := range rows {
+				rows[i] = map[string]any{"rowNumber": i + 1}
+			}
+			return rows
+		}
+		return []any{map[string]any{"rowNumber": 1000}}
+	}
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+	err := run([]string{"--config", configPath, "journal", "search", "--all"})
+	if err == nil || !strings.Contains(err.Error(), "unsafe pagination: rowNumber must increase") {
+		t.Fatalf("err = %v", err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("partial stdout: %s", output.String())
+	}
 }

@@ -26,7 +26,6 @@ type postingStub struct {
 	journalByID           map[string][]any
 	journalSearchRows     []any
 	journalSearchBodies   []map[string]any
-	journalSearchPages    map[int][]any
 	postingResponse       any
 	postingStatus         int
 	postingDropConnection bool
@@ -89,11 +88,18 @@ func newPostingStub(t *testing.T) *postingStub {
 			_ = json.Unmarshal(raw, &body)
 			stub.journalSearchBodies = append(stub.journalSearchBodies, body)
 			records := stub.journalSearchRows
-			if stub.journalSearchPages != nil {
-				page, _ := body["page"].(float64)
-				records = stub.journalSearchPages[int(page)]
-				if records == nil {
-					records = []any{}
+			if afterID, ok := body["afterId"].(float64); ok {
+				pageSize := int(body["pageSize"].(float64))
+				records = []any{}
+				for _, row := range stub.journalSearchRows {
+					rowNumber := row.(map[string]any)["rowNumber"].(int)
+					if float64(rowNumber) <= afterID {
+						continue
+					}
+					records = append(records, row)
+					if len(records) == pageSize {
+						break
+					}
 				}
 			}
 			writeJSONForCLI(w, map[string]any{"records": records})
@@ -310,8 +316,8 @@ func matchingJournalRows() []any {
 
 func matchingJournalRowsFor(documentNumber string) []any {
 	return []any{
-		map[string]any{"documentNumber": documentNumber, "postingDate": float64(1748822400000), "accountNumber": "4400", "debitAmount": 119.0, "creditAmount": 0.0, "vatKey": "U19"},
-		map[string]any{"documentNumber": documentNumber, "postingDate": float64(1748822400000), "accountNumber": "1200", "debitAmount": 0.0, "creditAmount": 119.0},
+		map[string]any{"rowNumber": 1, "documentNumber": documentNumber, "postingDate": float64(1748822400000), "accountNumber": "4400", "debitAmount": 119.0, "creditAmount": 0.0, "vatKey": "U19"},
+		map[string]any{"rowNumber": 2, "documentNumber": documentNumber, "postingDate": float64(1748822400000), "accountNumber": "1200", "debitAmount": 0.0, "creditAmount": 119.0},
 	}
 }
 
@@ -577,8 +583,9 @@ func TestBuchungCreateDoesNotWriteWhenAssignedDuplicateCannotBeReadBack(t *testi
 func TestBuchungCreatePaginatesAssignedDuplicateSearch(t *testing.T) {
 	stub := newHappyPostingStub(t)
 	firstPage := make([]any, 0, scopeskill.MaxSearchPageSize)
-	for range scopeskill.MaxSearchPageSize {
+	for i := range scopeskill.MaxSearchPageSize {
 		firstPage = append(firstPage, map[string]any{
+			"rowNumber":      i + 1,
 			"documentNumber": "unrelated",
 			"postingDate":    float64(1748822400000),
 			"accountNumber":  "9999",
@@ -588,7 +595,10 @@ func TestBuchungCreatePaginatesAssignedDuplicateSearch(t *testing.T) {
 	}
 	assignedDocumentNumber := "2026-000167"
 	assignedRows := matchingJournalRowsFor(assignedDocumentNumber)
-	stub.journalSearchPages = map[int][]any{0: firstPage, 1: assignedRows}
+	for i, row := range assignedRows {
+		row.(map[string]any)["rowNumber"] = scopeskill.MaxSearchPageSize + i + 1
+	}
+	stub.journalSearchRows = append(firstPage, assignedRows...)
 	stub.journalByID[assignedDocumentNumber] = assignedRows
 	configPath := postingConfigPath(t, stub.server.URL)
 	dataPath := postingFixture(t, validPostingInput)
@@ -606,6 +616,15 @@ func TestBuchungCreatePaginatesAssignedDuplicateSearch(t *testing.T) {
 	}
 	if len(stub.journalSearchBodies) != 2 {
 		t.Fatalf("journal searches = %#v", stub.journalSearchBodies)
+	}
+	for i, body := range stub.journalSearchBodies {
+		wantAfterID := float64(i * scopeskill.MaxSearchPageSize)
+		if body["afterId"] != wantAfterID || body["page"] != float64(0) {
+			t.Fatalf("journal search %d = %#v, want afterId=%v and page=0", i, body, wantAfterID)
+		}
+		if _, ok := body["order"]; ok {
+			t.Fatalf("cursor search includes custom order: %#v", body)
+		}
 	}
 }
 

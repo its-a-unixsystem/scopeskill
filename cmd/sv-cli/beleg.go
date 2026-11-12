@@ -248,10 +248,15 @@ func paginateBelegSearch(client *scopeskill.Client, endpoint string, base scopes
 		}
 		return scopeskill.RecordsFromResponse(raw)
 	}
+	cursorField := ""
+	if endpoint == eingangsrechnungKind.searchEndpoint {
+		cursorField = "id"
+	}
 	return scopeskill.Paginate(scopeskill.PaginateOptions{
-		All:      all,
-		PageSize: pageSize,
-		Max:      max,
+		All:         all,
+		PageSize:    pageSize,
+		Max:         max,
+		CursorField: cursorField,
 	}, base, fetch)
 }
 

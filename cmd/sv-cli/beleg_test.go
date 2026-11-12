@@ -54,6 +54,24 @@ func newBelegStub(t *testing.T) *belegStub {
 			_ = json.Unmarshal(raw, &body)
 			stub.searchBodies[r.URL.Path] = append(stub.searchBodies[r.URL.Path], body)
 			records := stub.searchRecords[r.URL.Path]
+			if afterID, cursor := body["afterId"]; cursor {
+				if r.URL.Path != "/rest/incominginvoices" || body["page"] != float64(0) || body["order"] != nil {
+					t.Errorf("invalid invoice cursor request: path=%s body=%#v", r.URL.Path, body)
+					http.Error(w, "invalid cursor request", http.StatusBadRequest)
+					return
+				}
+				pageSize := int(body["pageSize"].(float64))
+				page := make([]any, 0, pageSize)
+				for _, record := range records {
+					if record.(map[string]any)["id"].(float64) > afterID.(float64) {
+						page = append(page, record)
+						if len(page) == pageSize {
+							break
+						}
+					}
+				}
+				records = page
+			}
 			if records == nil {
 				records = []any{}
 			}
@@ -442,6 +460,68 @@ func TestEingangsrechnungSearchPostsExpectedConditions(t *testing.T) {
 	}
 	if got[0].(map[string]any)["documentNumber"] != "ER-2026-1" {
 		t.Fatalf("records = %#v", got)
+	}
+}
+
+func TestEingangsrechnungSearchAllRetainsSameDocumentNumberAcrossCursorPages(t *testing.T) {
+	stub := newBelegStub(t)
+	records := make([]any, scopeskill.MaxSearchPageSize+3)
+	for i := range records {
+		records[i] = map[string]any{
+			"id":             float64(i + 1),
+			"documentNumber": "INV-SHARED",
+		}
+	}
+	stub.searchRecords["/rest/incominginvoices"] = records
+	configPath := sachkontoConfigPath(t, stub.server.URL)
+	output, _ := withCLI(t, "", false)
+
+	if err := run([]string{"--config", configPath, "eingangsrechnung", "search", "--document-number=INV-SHARED", "--all"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("stdout JSON: %v", err)
+	}
+	if len(got) != len(records) {
+		t.Fatalf("records = %d, want %d", len(got), len(records))
+	}
+	for i, record := range got {
+		if record["id"] != float64(i+1) || record["documentNumber"] != "INV-SHARED" {
+			t.Fatalf("record %d = %#v, want id=%d and shared document number", i, record, i+1)
+		}
+	}
+
+	bodies := stub.searchBodies["/rest/incominginvoices"]
+	if len(bodies) != 2 {
+		t.Fatalf("incoming invoice requests = %d, want 2", len(bodies))
+	}
+	for i, body := range bodies {
+		if body["afterId"] != float64(i*scopeskill.MaxSearchPageSize) ||
+			body["page"] != float64(0) || body["pageSize"] != float64(scopeskill.MaxSearchPageSize) {
+			t.Fatalf("cursor request %d = %#v", i, body)
+		}
+		if _, exists := body["order"]; exists {
+			t.Fatalf("cursor request %d includes custom order: %#v", i, body)
+		}
+		idFields := 0
+		for _, field := range body["fields"].([]any) {
+			if field == "id" {
+				idFields++
+			}
+		}
+		if idFields != 1 {
+			t.Fatalf("cursor request %d id field count = %d", i, idFields)
+		}
+		search := body["search"].([]any)
+		if len(search) != 1 {
+			t.Fatalf("cursor request %d conditions = %#v", i, search)
+		}
+		condition := search[0].(map[string]any)
+		if condition["field"] != "documentNumber" || condition["operator"] != "equals" || condition["value"] != "INV-SHARED" {
+			t.Fatalf("cursor request %d condition = %#v", i, condition)
+		}
 	}
 }
 

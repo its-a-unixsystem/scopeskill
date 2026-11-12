@@ -328,7 +328,7 @@ func discoverCreatedDocumentNumber(client *scopeskill.Client, expected scopeskil
 	request := scopeskill.SearchRequest{
 		Fields: append([]string{}, journalSearchDefaultFields...),
 	}
-	records, err := scopeskill.Paginate(scopeskill.PaginateOptions{All: true}, request, func(body map[string]any) ([]any, error) {
+	records, err := scopeskill.Paginate(scopeskill.PaginateOptions{All: true, CursorField: "rowNumber"}, request, func(body map[string]any) ([]any, error) {
 		if !createdSince.IsZero() {
 			body["createdSince"] = createdSince.UnixMilli()
 		}

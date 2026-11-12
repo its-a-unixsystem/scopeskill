@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +47,20 @@ func newOffenePostenStub(t *testing.T) *offenePostenStub {
 			records := stub.openItemRecords[r.URL.Path]
 			if records == nil {
 				records = []any{}
+			}
+			if afterID, cursor := body["afterId"].(float64); cursor {
+				records = append([]any(nil), records...)
+				sort.Slice(records, func(i, j int) bool {
+					return records[i].(map[string]any)["leadRowNumber"].(float64) < records[j].(map[string]any)["leadRowNumber"].(float64)
+				})
+				first := 0
+				for first < len(records) && records[first].(map[string]any)["leadRowNumber"].(float64) <= afterID {
+					first++
+				}
+				records = records[first:]
+				if pageSize, ok := body["pageSize"].(float64); ok && len(records) > int(pageSize) {
+					records = records[:int(pageSize)]
+				}
 			}
 			writeJSONForCLI(w, map[string]any{"records": records})
 		case (r.URL.Path == "/rest/debitoraccounts" || r.URL.Path == "/rest/kreditoraccounts") && r.Method == http.MethodPost:
@@ -125,6 +140,53 @@ func TestOffenePostenListDebitorWithKontoFilter(t *testing.T) {
 	}
 	if got[0].(map[string]any)["accountNumber"] != "10000" {
 		t.Fatalf("records = %#v", got)
+	}
+}
+
+func TestOffenePostenListAllTraversesLeadRowNumbers(t *testing.T) {
+	for _, tc := range []struct {
+		side     string
+		endpoint string
+	}{
+		{"debitor", "/rest/openitems/debtors"},
+		{"kreditor", "/rest/openitems/creditors"},
+	} {
+		t.Run(tc.side, func(t *testing.T) {
+			stub := newOffenePostenStub(t)
+			for id := 1003; id > 0; id-- {
+				stub.openItemRecords[tc.endpoint] = append(stub.openItemRecords[tc.endpoint], map[string]any{
+					"leadRowNumber": float64(id),
+					"postingNumber": "SAME-DOCUMENT",
+					"amount":        -119.0,
+				})
+			}
+			output, _ := withCLI(t, "", false)
+			configPath := sachkontoConfigPath(t, stub.server.URL)
+			if err := run([]string{"--config", configPath, "offene-posten", "list", "--seite=" + tc.side, "--all"}); err != nil {
+				t.Fatal(err)
+			}
+			var records []map[string]any
+			if err := json.Unmarshal(output.Bytes(), &records); err != nil {
+				t.Fatalf("stdout JSON: %v", err)
+			}
+			if len(records) != 1003 {
+				t.Fatalf("records = %d, want 1003", len(records))
+			}
+			for i, record := range records {
+				if record["leadRowNumber"] != float64(i+1) {
+					t.Fatalf("record %d identity = %v, want %d", i+1, record["leadRowNumber"], i+1)
+				}
+			}
+			bodies := stub.openItemBodies[tc.endpoint]
+			if len(bodies) != 2 {
+				t.Fatalf("requests = %d, want 2", len(bodies))
+			}
+			for i, body := range bodies {
+				if body["afterId"] != float64(i*1000) || body["page"] != float64(0) || body["order"] != nil {
+					t.Fatalf("request %d cursor contract = %#v", i+1, body)
+				}
+			}
+		})
 	}
 }
 

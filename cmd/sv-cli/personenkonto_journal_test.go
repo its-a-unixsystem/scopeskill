@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -49,6 +48,22 @@ func newPersonenkontoJournalStub(t *testing.T) *personenkontoJournalStub {
 			_ = json.Unmarshal(raw, &body)
 			stub.requests = append(stub.requests, searchEndpointRequest{method: r.Method, path: r.URL.Path, body: body})
 			pages := stub.pages[r.URL.Path]
+			if after, ok := body["afterId"].(float64); r.URL.Path == "/rest/personaljournal" && ok {
+				if body["order"] != nil || body["page"] != float64(0) {
+					t.Errorf("invalid cursor request: %#v", body)
+				}
+				records := []any{}
+				for _, page := range pages {
+					for _, item := range page {
+						row := item.(map[string]any)
+						if row["rowNumber"].(int) > int(after) && len(records) < int(body["pageSize"].(float64)) {
+							records = append(records, item)
+						}
+					}
+				}
+				writeJSONForCLI(w, map[string]any{"records": records})
+				return
+			}
 			idx := pageIndex[r.URL.Path]
 			if idx >= len(pages) {
 				t.Errorf("unexpected page for %s", r.URL.Path)
@@ -105,12 +120,12 @@ func TestPersonenkontoJournalCommandsUseExpectedEndpoints(t *testing.T) {
 func TestPersonenkontoJournalAllPaginates(t *testing.T) {
 	full := make([]any, scopeskill.MaxSearchPageSize)
 	for i := range full {
-		full[i] = map[string]any{"documentNumber": fmt.Sprintf("%04d", i)}
+		full[i] = map[string]any{"rowNumber": i + 1, "documentNumber": "same-document"}
 	}
 	stub := newPersonenkontoJournalStub(t)
 	stub.pages["/rest/personaljournal"] = [][]any{
 		full,
-		{map[string]any{"documentNumber": "last"}},
+		{map[string]any{"rowNumber": 1001, "documentNumber": "same-document"}},
 	}
 	configPath := sachkontoConfigPath(t, stub.server.URL)
 	output, _ := withCLI(t, "", false)
@@ -122,19 +137,16 @@ func TestPersonenkontoJournalAllPaginates(t *testing.T) {
 	if len(stub.requests) != 2 {
 		t.Fatalf("requests = %d", len(stub.requests))
 	}
-	for i, req := range stub.requests {
-		if req.body["page"].(float64) != float64(i) {
-			t.Fatalf("call %d body = %#v", i, req.body)
-		}
-		if req.body["pageSize"].(float64) != float64(scopeskill.MaxSearchPageSize) {
-			t.Fatalf("call %d body = %#v", i, req.body)
-		}
-	}
 	var got []any
 	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
 		t.Fatalf("stdout JSON: %v: %s", err, output.String())
 	}
 	if len(got) != scopeskill.MaxSearchPageSize+1 {
 		t.Fatalf("len = %d", len(got))
+	}
+	for i, item := range got {
+		if item.(map[string]any)["rowNumber"] != float64(i+1) {
+			t.Fatalf("row %d = %#v", i+1, item)
+		}
 	}
 }

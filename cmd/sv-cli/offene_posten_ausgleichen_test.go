@@ -7,22 +7,24 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
 
 type clearingCommandStub struct {
-	seite           offenePostenSeite
-	server          *httptest.Server
-	journal         map[string][]any
-	openItems       map[string]map[string]any
-	writeCount      int
-	writeStatus     int
-	ambiguousWrite  bool
-	applyWrite      bool
-	searchCount     int
-	mutateOnSearch  int
-	lastRequestBody map[string]any
+	seite            offenePostenSeite
+	server           *httptest.Server
+	journal          map[string][]any
+	openItems        map[string]map[string]any
+	writeCount       int
+	writeStatus      int
+	ambiguousWrite   bool
+	applyWrite       bool
+	searchCount      int
+	mutateOnSearch   int
+	corruptOpenItems func([]any) []any
+	lastRequestBody  map[string]any
 }
 
 func newClearingCommandStub(t *testing.T) *clearingCommandStub {
@@ -84,6 +86,22 @@ func newClearingCommandStubForSide(t *testing.T, seite offenePostenSeite) *clear
 					records = append(records, item)
 				}
 			}
+			sort.Slice(records, func(i, j int) bool {
+				return records[i].(map[string]any)["leadRowNumber"].(float64) < records[j].(map[string]any)["leadRowNumber"].(float64)
+			})
+			if afterID, ok := body["afterId"].(float64); ok {
+				first := 0
+				for first < len(records) && records[first].(map[string]any)["leadRowNumber"].(float64) <= afterID {
+					first++
+				}
+				records = records[first:]
+			}
+			if pageSize, ok := body["pageSize"].(float64); ok && len(records) > int(pageSize) {
+				records = records[:int(pageSize)]
+			}
+			if stub.corruptOpenItems != nil {
+				records = stub.corruptOpenItems(records)
+			}
 			writeJSONForCLI(w, map[string]any{"records": records})
 		case r.URL.Path == "/rest"+stub.seite.clearingEndpoint:
 			stub.writeCount++
@@ -128,9 +146,9 @@ func newHappyClearingCommandStubForSide(t *testing.T, seite offenePostenSeite, a
 	stub.journal["PAY-1"] = personalAccountDocumentRows("PAY-1", account, summaryAccount, 200, true)
 	stub.journal["INV-1"] = personalAccountDocumentRows("INV-1", account, summaryAccount, 119, false)
 	stub.journal["INV-2"] = personalAccountDocumentRows("INV-2", account, summaryAccount, 81, false)
-	stub.openItems["PAY-1"] = openItem("PAY-1", account, 200, true)
-	stub.openItems["INV-1"] = openItem("INV-1", account, 119, false)
-	stub.openItems["INV-2"] = openItem("INV-2", account, 81, false)
+	stub.openItems["PAY-1"] = openItem(1, "PAY-1", account, 200, true)
+	stub.openItems["INV-1"] = openItem(2, "INV-1", account, 119, false)
+	stub.openItems["INV-2"] = openItem(3, "INV-2", account, 81, false)
 	return stub
 }
 
@@ -155,12 +173,13 @@ func personalAccountDocumentRows(documentNumber, account, summaryAccount string,
 // openItem spiegelt das echte OP-Format: die Belegnummer steht in
 // postingNumber, der offene Betrag als vorzeichenbehaftetes amount (Rechnung
 // negativ, Zahlung positiv), ohne eigenes openAmount oder currency.
-func openItem(postingNumber, account string, open float64, payment bool) map[string]any {
+func openItem(leadRowNumber float64, postingNumber, account string, open float64, payment bool) map[string]any {
 	amount := -open
 	if payment {
 		amount = open
 	}
 	return map[string]any{
+		"leadRowNumber": leadRowNumber,
 		"postingNumber": postingNumber,
 		"accountNumber": account,
 		"amount":        amount,
@@ -347,6 +366,45 @@ func TestOffenePostenClearRejectsUnsafePreflightWithoutWrite(t *testing.T) {
 			}
 			if stub.writeCount != 0 {
 				t.Fatalf("write count = %d", stub.writeCount)
+			}
+		})
+	}
+}
+
+func TestOffenePostenClearRejectsUnsafePaginationWithoutWrite(t *testing.T) {
+	for _, seite := range []offenePostenSeite{offenePostenDebitor, offenePostenKreditor} {
+		t.Run(seite.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name    string
+				corrupt func([]any) []any
+			}{
+				{"duplicate", func(records []any) []any {
+					records[1] = records[0]
+					return records
+				}},
+				{"backward", func(records []any) []any {
+					records[0], records[1] = records[1], records[0]
+					return records
+				}},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					account, summaryAccount := "70010", "3300"
+					if seite.name == "debitor" {
+						account, summaryAccount = "10010", "1400"
+					}
+					stub := newHappyClearingCommandStubForSide(t, seite, account, summaryAccount)
+					stub.corruptOpenItems = tc.corrupt
+					status, _, err := runClear(t, stub, standardClearingInput(t), "--yes")
+					if err == nil || !strings.Contains(err.Error(), "unsafe pagination: leadRowNumber must increase") {
+						t.Fatalf("error = %v, want unsafe pagination error", err)
+					}
+					if status != nil {
+						t.Fatalf("unexpected stdout status = %#v", status)
+					}
+					if stub.writeCount != 0 {
+						t.Fatalf("write count = %d, want 0", stub.writeCount)
+					}
+				})
 			}
 		})
 	}

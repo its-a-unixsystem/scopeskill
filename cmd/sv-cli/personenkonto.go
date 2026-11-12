@@ -8,8 +8,9 @@ import (
 )
 
 var personenkontoJournalCommand = searchEndpointCommand{
-	name:     "personenkonto journal",
-	endpoint: "/personaljournal",
+	name:        "personenkonto journal",
+	endpoint:    "/personaljournal",
+	cursorField: "rowNumber",
 }
 
 func personenkonto(client *scopeskill.Client, args []string) error {

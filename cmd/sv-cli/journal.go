@@ -100,8 +100,9 @@ Dimension keys:
 Pagination:
   default                  single page at pageSize=100
   --page-size=N            override the single-page pageSize (1..1000)
-  --all                    page through all results at pageSize=1000, capped at 10000
-  --max=N                  raise the --all safety cap (default 10000)
+  --all                    traverse ascending rowNumber at pageSize=1000, capped at 10000
+  --max=N                  set the --all safety cap (default 10000)
+                           output includes rowNumber; integrity errors produce no rows
 
 Escape hatch:
   --data @file.json        full search-body override; cannot combine with --all,
@@ -239,9 +240,10 @@ func paginateJournalSearch(client *scopeskill.Client, base scopeskill.SearchRequ
 		return scopeskill.RecordsFromResponse(raw)
 	}
 	return scopeskill.Paginate(scopeskill.PaginateOptions{
-		All:      all,
-		PageSize: pageSize,
-		Max:      max,
+		All:         all,
+		PageSize:    pageSize,
+		Max:         max,
+		CursorField: "rowNumber",
 	}, base, fetch)
 }
 

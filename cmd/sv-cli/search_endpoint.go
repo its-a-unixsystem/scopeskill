@@ -14,6 +14,7 @@ type searchEndpointCommand struct {
 	endpoint      string
 	defaultFields []string
 	order         []string
+	cursorField   string
 }
 
 func runSearchEndpointCommand(client *scopeskill.Client, command searchEndpointCommand, args []string) error {
@@ -59,7 +60,7 @@ func runSearchEndpointCommand(client *scopeskill.Client, command searchEndpointC
 		Fields: append([]string{}, command.defaultFields...),
 		Order:  append([]string{}, command.order...),
 	}
-	records, err := paginateSearchEndpoint(client, command.endpoint, base, *all, *pageSize, *max)
+	records, err := paginateSearchEndpoint(client, command.endpoint, base, *all, *pageSize, *max, command.cursorField)
 	if err != nil {
 		return err
 	}
@@ -69,7 +70,7 @@ func runSearchEndpointCommand(client *scopeskill.Client, command searchEndpointC
 	return printJSON(records)
 }
 
-func paginateSearchEndpoint(client *scopeskill.Client, endpoint string, base scopeskill.SearchRequest, all bool, pageSize, max int) ([]any, error) {
+func paginateSearchEndpoint(client *scopeskill.Client, endpoint string, base scopeskill.SearchRequest, all bool, pageSize, max int, cursorField string) ([]any, error) {
 	fetch := func(body map[string]any) ([]any, error) {
 		raw, err := client.JSON(http.MethodPost, endpoint, body, nil)
 		if err != nil {
@@ -78,8 +79,9 @@ func paginateSearchEndpoint(client *scopeskill.Client, endpoint string, base sco
 		return scopeskill.RecordsFromResponse(raw)
 	}
 	return scopeskill.Paginate(scopeskill.PaginateOptions{
-		All:      all,
-		PageSize: pageSize,
-		Max:      max,
+		All:         all,
+		PageSize:    pageSize,
+		Max:         max,
+		CursorField: cursorField,
 	}, base, fetch)
 }

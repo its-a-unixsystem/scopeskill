@@ -413,7 +413,29 @@ Search-style commands support the following pagination flags:
 
 - `--page-size=N`: Override the single-page size (default: 100, max: 1000).
 - `--all`: Page through all results automatically at `pageSize=1000`, capped at 10000.
-- `--max=N`: Raise the `--all` safety cap (default: 10000).
+- `--max=N`: Set the `--all` safety cap (default: 10000).
+
+With `--all`, these commands traverse in ascending identity order:
+
+| Command | Identity field |
+| --- | --- |
+| `journal search` | `rowNumber` |
+| `personenkonto journal` | `rowNumber` |
+| `eingangsrechnung search` | `id` |
+| `offene-posten list` (both sides) | `leadRowNumber` |
+
+The CLI uses `afterId` with `page=0` and no custom order. Output includes the
+identity field. The default or explicit cap selects an ascending-ID prefix,
+not a chronological subset; the CLI does not re-sort it by date.
+Missing, invalid, repeated, or backward identities cause an
+`unsafe pagination:` error with no partial stdout. Provider errors propagate
+without an offset-paging fallback.
+
+Single-page searches and raw `--data` requests retain their existing behavior.
+Other commands, including `gutschrift search`, retain offset pagination.
+Bulk reads do not provide a transactional snapshot of concurrent changes.
+Posting discovery and clearing preflight use the same identity checks for
+their internal Journal and open-item reads.
 
 ### Raw Search Body Override (Escape Hatch)
 

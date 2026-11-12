@@ -239,9 +239,10 @@ func paginateOpenItems(client *scopeskill.Client, endpoint string, base scopeski
 		return scopeskill.RecordsFromResponse(raw)
 	}
 	return scopeskill.Paginate(scopeskill.PaginateOptions{
-		All:      all,
-		PageSize: pageSize,
-		Max:      max,
+		All:         all,
+		PageSize:    pageSize,
+		Max:         max,
+		CursorField: "leadRowNumber",
 	}, base, fetch)
 }
 
